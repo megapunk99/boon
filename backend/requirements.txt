@@ -31,3 +31,7 @@ Pillow>=10.0.0
 
 # QR Code generation
 qrcode[pil]>=8.0.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.30
+aiosqlite>=0.20.0

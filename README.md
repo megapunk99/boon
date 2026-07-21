@@ -72,6 +72,7 @@ Boon is an **integrated biomedical waste intelligence platform** combining QR co
 |---------|-----------|--------|
 | **Camera QR Scanner** | `html5-qrcode` + React | Scan waste QR codes in real-time via phone/tablet camera |
 | **QR Code Generation** | `python-qrcode` | CPCB-compliant barcodes with blockchain registration |
+| **Persistent Scan Log** | SQLite + SQLAlchemy async | Scan data persists across restarts — no data loss |
 | **Sāthī Blockchain** | SHA-256 hash chain | Immutable waste lifecycle — generation → disposal |
 | **Compliance Engine** | Automated scoring | Real-time facility compliance (0-100%) with violation tracking |
 | **CBWTF Marketplace** | Capacity exchange | Hospitals sell excess capacity, CBWTFs list services |
@@ -89,6 +90,9 @@ Boon is an **integrated biomedical waste intelligence platform** combining QR co
 
 - **Python 3.12+** — [python.org](https://python.org)
 - **Node.js 18+** — [nodejs.org](https://nodejs.org)
+
+> **Note:** The scanner database (`data/boon.db`) is auto-created on first launch.
+> Tests use an isolated **in-memory SQLite database** — no file cleanup needed.
 
 ### One-Click Launch (Windows)
 
@@ -252,6 +256,20 @@ Healthcare facility management:
     │  │  │ Marketplace       │  │                         │   │  │
     │  │  └──────────────────┘  └─────────────────────────┘   │  │
     │  └──────────────────────────────────────────────────────┘  │
+    │       │                                                   │
+    │  ┌────┴──────────────────────────────────────────────────┐│
+    │  │           Database Layer (Production-Ready)            ││
+    │  │  ┌──────────────┐  ┌──────────────────────────────┐   ││
+    │  │  │ Scan Record   │  │ Barcode Sequence Counter     │   ││
+    │  │  │ SQLAlchemy    │  │ (atomic, single-row table)   │   ││
+    │  │  │ ORM Model     │  │                              │   ││
+    │  │  └──────┬───────┘  └──────────────────────────────┘   ││
+    │  │         │                                            ││
+    │  │  ┌──────┴──────────────────────────────────────────┐ ││
+    │  │  │  SQLite (aiosqlite) — data/boon.db               │ ││
+    │  │  │  In-memory SQLite for test isolation             │ ││
+    │  │  └─────────────────────────────────────────────────┘ ││
+    │  └──────────────────────────────────────────────────────┘│
     └────────────────────────────────────────────────────────────┘
 ```
 
@@ -345,6 +363,10 @@ python -m pytest -v
 | Test File | Tests | What It Covers |
 |-----------|-------|----------------|
 | `tests/test_scanner.py` | 41 | QR generation (12), verification (7), log scan (5), history (6), stats (5), real data (6) |
+
+### Persistence Guarantee
+
+All scan records, barcode sequences, and scanner statistics are now **persisted to SQLite** (`backend/data/boon.db`). Data survives server restarts. Tests use a separate **in-memory database** for complete isolation.
 | `tests/test_sathi.py` | 64 | Dashboard (8), blockchain explorer (12), handoff (5), compliance (9), AI enforcement (5), marketplace (6), CPCB reports (8) |
 | `tests/test_health.py` | 11 | Health check, API availability |
 | `tests/test_tracking.py` | 16 | Trace, live tracking, statistics |

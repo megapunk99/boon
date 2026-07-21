@@ -2,6 +2,8 @@
 
 Endpoints for the standalone scanner app that captures waste data
 via camera, generates QR codes, and logs items to the Boon system.
+
+Persistence: Uses SQLite-backed database instead of in-memory list.
 """
 
 import hashlib
@@ -9,25 +11,23 @@ import io
 import base64
 import json
 import qrcode
-import random
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from data.sample_data import SAMPLE_WASTE_ITEMS
 from data.real_india_data import (
     get_real_india_stats, get_state_wise_summary, get_segregation_guide,
     REAL_INDIAN_HOSPITALS, INDIAN_BMW_CATEGORIES,
 )
+from app.database import get_session
+from app.models.scan_record import ScanRecord
+from app.services import scan_service
 from app.services.blockchain_service import sathi_network
 
 router = APIRouter(prefix="/scanner", tags=["Scanner & QR"])
-
-# ── In-memory scan log (for demo; uses DB in production) ────────────────
-SCAN_LOG: list[dict] = []
-_SEQ_COUNTER: int = 0  # Global sequential counter for barcode generation
-
 
 # ── Request / Response Models ────────────────────────────────────────────
 
@@ -107,17 +107,20 @@ async def get_categories():
 
 
 @router.post("/generate-qr")
-async def generate_qr(request: QRGenerateRequest):
+async def generate_qr(
+    request: QRGenerateRequest,
+    session: AsyncSession = Depends(get_session),
+):
     """Generate a QR code for a new waste item.
 
     Returns the QR code as a base64 PNG data URL along with
     the generated barcode and metadata for printing.
+    Uses database-backed sequence counter for persistent barcode IDs.
     """
-    # Generate unique barcode with deterministic sequential ID
-    global _SEQ_COUNTER
-    _SEQ_COUNTER += 1
+    # Generate unique barcode with DB-persisted sequential ID
+    seq = await scan_service.get_next_sequence_number(session)
     barcode = generate_barcode(
-        request.category, request.source_facility, _SEQ_COUNTER
+        request.category, request.source_facility, seq
     )
 
     # Create QR data payload
@@ -198,30 +201,29 @@ async def generate_qr(request: QRGenerateRequest):
 
 
 @router.post("/log-scan")
-async def log_scan(request: ScanLogRequest):
-    """Log a scanned waste item into the tracking system.
+async def log_scan(
+    request: ScanLogRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Log a scanned waste item into the tracking system (persisted to DB).
 
     This syncs data from the scanner app to the main Boon system.
     """
-    scan_entry = {
-        "id": f"SCN-{datetime.now().strftime('%y%m%d-%H%M%S')}-{random.randint(100, 999)}",
-        "barcode": request.barcode,
-        "waste_type": request.waste_type,
-        "category": request.category,
-        "weight_kg": request.weight_kg,
-        "source_facility": request.source_facility,
-        "department": request.department,
-        "container_type": request.container_type,
-        "scanned_by": request.scanned_by,
-        "notes": request.notes,
-        "gps_lat": request.gps_lat,
-        "gps_lng": request.gps_lng,
-        "scanned_at": datetime.now().isoformat(),
-        "status": "logged",
-        "synced_to_main": True,
-    }
-
-    SCAN_LOG.append(scan_entry)
+    record = await scan_service.create_scan(
+        session=session,
+        barcode=request.barcode,
+        waste_type=request.waste_type,
+        category=request.category,
+        weight_kg=request.weight_kg,
+        source_facility=request.source_facility,
+        department=request.department,
+        container_type=request.container_type,
+        scanned_by=request.scanned_by,
+        notes=request.notes,
+        gps_lat=request.gps_lat,
+        gps_lng=request.gps_lng,
+    )
+    scan_entry = record.to_dict()
 
     return {
         "success": True,
@@ -233,10 +235,13 @@ async def log_scan(request: ScanLogRequest):
 
 
 @router.get("/verify/{barcode}")
-async def verify_barcode(barcode: str):
+async def verify_barcode(
+    barcode: str,
+    session: AsyncSession = Depends(get_session),
+):
     """Verify a barcode/QR code against the Boon tracking system.
 
-    Checks if the barcode exists in the main system or scan log.
+    Checks if the barcode exists in the main system or database scan log.
     """
     # Check main system
     main_items = [i for i in SAMPLE_WASTE_ITEMS if barcode.upper() in i.barcode.upper()]
@@ -256,10 +261,10 @@ async def verify_barcode(barcode: str):
             "trace_url": f"/api/v1/tracking/trace/{item.barcode}",
         }
 
-    # Check scan log
-    scan_items = [s for s in SCAN_LOG if s["barcode"] == barcode]
-    if scan_items:
-        entry = scan_items[-1]
+    # Check database scan log
+    record = await scan_service.get_scan_by_barcode(session, barcode)
+    if record:
+        entry = record.to_dict()
         return {
             "verified": True,
             "source": "scanner_app",
@@ -270,7 +275,7 @@ async def verify_barcode(barcode: str):
             "weight_kg": entry["weight_kg"],
             "facility": entry["source_facility"],
             "department": entry["department"],
-            "generated_at": entry["scanned_at"],
+            "generated_at": entry.get("scanned_at"),
             "trace_url": f"/api/v1/tracking/trace/{entry['barcode']}",
         }
 
@@ -285,12 +290,13 @@ async def verify_barcode(barcode: str):
 
 @router.get("/history")
 async def get_scan_history(
+    session: AsyncSession = Depends(get_session),
     limit: int = Query(20, description="Number of recent scans to return"),
     offset: int = Query(0, description="Offset for pagination"),
 ):
-    """Get the history of scanned and logged waste items."""
-    total = len(SCAN_LOG)
-    items = list(reversed(SCAN_LOG))[offset:offset + limit]
+    """Get the history of scanned and logged waste items from the database."""
+    records, total = await scan_service.get_scan_history(session, limit, offset)
+    items = [r.to_dict() for r in records]
 
     return {
         "total": total,
@@ -302,28 +308,8 @@ async def get_scan_history(
 
 
 @router.get("/stats")
-async def get_scanner_stats():
-    """Get scanner app statistics."""
-    total_scans = len(SCAN_LOG)
-    today_scans = sum(
-        1 for s in SCAN_LOG
-        if s["scanned_at"].startswith(datetime.now().strftime("%Y-%m-%d"))
-    )
-
-    # Category breakdown
-    cat_breakdown: dict[str, int] = {}
-    for s in SCAN_LOG:
-        cat_breakdown[s["category"]] = cat_breakdown.get(s["category"], 0) + 1
-
-    recent_scans = list(reversed(SCAN_LOG))[:5]
-
-    return {
-        "total_scans": total_scans,
-        "today_scans": today_scans,
-        "unique_barcodes": len(set(s["barcode"] for s in SCAN_LOG)),
-        "category_breakdown": cat_breakdown,
-        "total_weight_kg": round(sum(s["weight_kg"] for s in SCAN_LOG), 2),
-        "recent_scans": recent_scans,
-        "system_status": "connected",
-        "last_sync": datetime.now().isoformat() if SCAN_LOG else None,
-    }
+async def get_scanner_stats(
+    session: AsyncSession = Depends(get_session),
+):
+    """Get scanner app statistics from the database."""
+    return await scan_service.get_scanner_stats(session)

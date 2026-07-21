@@ -1,12 +1,44 @@
-"""Pytest fixtures for Boon API tests."""
+"""
+Pytest fixtures for Boon API tests.
+
+Sets up an in-memory SQLite database for test isolation.
+IMPORTANT: The BOON_DATABASE_URL env var must be set BEFORE app.database is imported.
+"""
+
+import os
+
+# ── Must be set before ANY app.database imports ──────────────────────────
+# This ensures database.py reads the in-memory URL at module-load time.
+os.environ["BOON_DATABASE_URL"] = "sqlite+aiosqlite://"
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.database import init_db, drop_db, close_db, SessionLocal
+from app.services import scan_service
 from data.sample_data import SAMPLE_WASTE_ITEMS, SAMPLE_ALERTS, SAMPLE_ROUTES, FACILITIES
 
 API_PREFIX = "/api/v1"
+
+
+# ── Initialize database once per test session ────────────────────────────
+@pytest.fixture(scope="session", autouse=True)
+async def _setup_database():
+    """Create all tables before tests, drop and close after."""
+    await init_db()
+    yield
+    await drop_db()
+    await close_db()
+
+
+# ── Clean scan_log + sequence table before each test ─────────────────────
+@pytest.fixture(autouse=True)
+async def _clean_database():
+    """Clear all scan records and reset barcode sequence before each test."""
+    async with SessionLocal() as session:
+        await scan_service.clear_all_scans(session)
+        await scan_service.reset_sequence(session, start=1)
 
 
 @pytest.fixture

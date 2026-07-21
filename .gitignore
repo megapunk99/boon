@@ -37,6 +37,11 @@ Thumbs.db
 # Logs
 *.log
 
+# Database
+*.db
+*.db-wal
+*.db-shm
+
 # Config
 .env.local
 .env.*.local
