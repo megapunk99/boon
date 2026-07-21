@@ -11,7 +11,7 @@ from datetime import datetime
 from sqlalchemy import func, select, delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import func, select, delete as sa_delete, update
+from sqlalchemy import func, select, delete as sa_delete
 
 from app.models.scan_record import BarcodeSequence, ScanRecord
 
