@@ -5,10 +5,12 @@ on:
     branches: [main, master]
     paths:
       - 'mobile/**'
+      - '.github/workflows/build-flutter-apk.yml'
   pull_request:
     branches: [main, master]
     paths:
       - 'mobile/**'
+      - '.github/workflows/build-flutter-apk.yml'
   workflow_dispatch:
 
 jobs:
