@@ -49,6 +49,39 @@ jobs:
             echo "android/ directory exists — skipping platform generation."
           fi
 
+      - name: Generate local.properties (required by Gradle)
+        run: |
+          if [ -f "android/local.properties" ]; then
+            echo "local.properties already exists — checking content..."
+            cat android/local.properties
+          else
+            echo "local.properties missing — generating..."
+            FLUTTER_ROOT="$(dirname $(which flutter))/.."
+            echo "FLUTTER_ROOT detected: $FLUTTER_ROOT"
+            cat > android/local.properties << 'LOCALEOF'
+flutter.sdk=$FLUTTER_ROOT
+flutter.versionCode=1
+flutter.versionName=1.0.0
+LOCALEOF
+            echo "local.properties created:"
+            cat android/local.properties
+          fi
+
+      - name: Debug environment
+        run: |
+          echo "## System Info" >> $GITHUB_STEP_SUMMARY
+          echo "- Flutter: $(flutter --version 2>&1 | head -1)" >> $GITHUB_STEP_SUMMARY
+          echo "- Java: $(java -version 2>&1 | head -1)" >> $GITHUB_STEP_SUMMARY
+          echo "- Working dir: $(pwd)" >> $GITHUB_STEP_SUMMARY
+          echo "- Android SDK: ${ANDROID_HOME:-not set}" >> $GITHUB_STEP_SUMMARY
+          echo "- FLUTTER_ROOT: ${FLUTTER_ROOT:-not set}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Android directory structure" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ls -la android/ >> $GITHUB_STEP_SUMMARY
+          ls -la android/app/ >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
       - name: Setup release keystore
         run: |
           if [ -f "keystore/boon-release-keystore.p12" ]; then
