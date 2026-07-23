@@ -80,6 +80,12 @@ jobs:
           ls -la android/app/ >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
+      - name: Firebase Crashlytics CI setup
+        run: |
+          echo "Setting up Firebase for CI (graceful fallback if not configured)..."
+          bash firebase_ci_setup.sh
+          echo "Firebase setup complete."
+
       - name: Setup release keystore
         run: |
           if [ -f "keystore/boon-release-keystore.p12" ]; then
