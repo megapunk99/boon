@@ -55,10 +55,15 @@ mobile/.pub/
 mobile/.flutter-plugins*
 mobile/ios/Pods/
 mobile/ios/.symlinks/
+mobile/.flutter-version
+
+# Android generated cache (but NOT the committed template files)
 mobile/android/.gradle/
 mobile/android/local.properties
 mobile/android/key.properties
-mobile/.flutter-version
+mobile/android/app/build/
+mobile/android/app/build.gradle.bak
+mobile/android/.idea/
 
 # Web frontend build
 frontend/dist/
