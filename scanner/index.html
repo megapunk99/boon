@@ -1,130 +1,421 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-IN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Boon Scanner has moved — now integrated into the main dashboard.">
-  <title>Boon Scanner — Redirecting...</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Boon Mobile Scanner — Scan biomedical waste QR codes and log to the Boon tracking system.">
+  <meta name="theme-color" content="#030712">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Boon Scanner">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='64' fill='%23059769'/%3E%3Ctext x='256' y='340' text-anchor='middle' font-size='280' fill='white'%3E🌿%3C/text%3E%3C/svg%3E">
+  <title>Boon Scanner — Mobile QR Code Scanner</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Inline critical styles for instant paint -->
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #030712;
-      color: #e5e7eb;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 20px;
+    :root {
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-top: env(safe-area-inset-top, 0px);
     }
-    .container {
-      text-align: center;
-      max-width: 480px;
-      animation: fadeIn 0.6s ease-out;
+    body { overflow: hidden; height: 100dvh; }
+    .app-container { height: 100dvh; padding-bottom: var(--safe-bottom); }
+    .status-bar { padding-top: calc(8px + var(--safe-top)); }
+    .qr-image { width: 200px; height: 200px; image-rendering: pixelated; background: white; padding: 12px; border-radius: 12px; }
+    .btn-icon-lg { width: 56px; height: 56px; border-radius: 50%; font-size: 24px; }
+    .fab { position: fixed; bottom: calc(80px + var(--safe-bottom)); right: 16px; z-index: 50; }
+    .scan-count-badge { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--boon-500); color: white; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid var(--bg-secondary); }
+    .history-item { cursor: pointer; }
+    .history-item:active { transform: scale(0.98); }
+    .filter-chip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: 999px; font-size: 11px; font-weight: 600; cursor: pointer; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-muted); transition: var(--transition); }
+    .filter-chip.active { background: rgba(16, 185, 129, 0.15); border-color: var(--boon-500); color: var(--boon-400); }
+    .barcode-display { font-family: 'Courier New', monospace; font-size: 13px; word-break: break-all; background: var(--bg-primary); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); color: var(--boon-400); }
+    @media (max-width: 380px) {
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .tab-btn { font-size: 10px; padding: 10px 4px; }
+      .tab-btn .tab-icon { font-size: 14px; }
     }
-    .logo {
-      font-size: 48px;
-      margin-bottom: 16px;
+    @media (display-mode: standalone) {
+      .status-bar { padding-top: calc(12px + var(--safe-top)); }
     }
-    h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: #fff;
-      margin-bottom: 8px;
-    }
-    p {
-      font-size: 14px;
-      color: #9ca3af;
-      line-height: 1.6;
-      margin-bottom: 24px;
-    }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 28px;
-      background: linear-gradient(135deg, #059669, #0d9488);
-      color: #fff;
-      text-decoration: none;
-      border-radius: 10px;
-      font-size: 15px;
-      font-weight: 600;
-      transition: all 0.2s;
-      box-shadow: 0 4px 20px rgba(5, 150, 105, 0.3);
-    }
-    .btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 24px rgba(5, 150, 105, 0.4);
-    }
-    .redirect-note {
-      margin-top: 20px;
-      font-size: 12px;
-      color: #6b7280;
-    }
-    .redirect-note a {
-      color: #34d399;
-      text-decoration: none;
-    }
-    .spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid rgba(255,255,255,0.2);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
-    }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .sync-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; background: rgba(251, 191, 36, 0.15); color: var(--yellow-400); border: 1px solid rgba(251, 191, 36, 0.2); }
+    .offline-badge { background: rgba(239, 68, 68, 0.15); color: var(--red-400); border: 1px solid rgba(239, 68, 68, 0.2); }
+    .flash-overlay { position: fixed; inset: 0; background: white; z-index: 9999; pointer-events: none; animation: flash 0.15s ease-out; }
+    @keyframes flash { from { opacity: 0.8; } to { opacity: 0; } }
+    .empty-icon-lg { font-size: 64px; opacity: 0.3; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="logo">🌿</div>
-    <h1>Boon Scanner Has Moved</h1>
-    <p>
-      The QR code scanner and generator is now integrated directly into the 
-      <strong>Boon Intelligence Dashboard</strong> — with blockchain-verified tracking, 
-      Sāthī Network integration, and a unified interface.
-    </p>
-    <a href="http://localhost:3000/qrcode" class="btn" id="redirect-btn">
-      <span class="spinner" id="spinner"></span>
-      Open QR Code Manager
-    </a>
-    <p class="redirect-note">
-      Redirecting automatically in <span id="countdown">6</span> seconds...
-      <br><br>
-      <a href="http://localhost:3000">← Back to Master Hub</a>
-    </p>
+  <div class="app-container" id="app">
+    <!-- Status Bar -->
+    <div class="status-bar" id="status-bar">
+      <div class="status-left">
+        <span class="status-dot offline" id="status-dot"></span>
+        <span id="status-text">Connecting...</span>
+      </div>
+      <div class="status-right" id="status-right">
+        <span class="text-xs text-muted" id="sync-status"></span>
+      </div>
+    </div>
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="app-brand">
+        <div class="app-logo">🌿</div>
+        <div>
+          <div class="app-title">Boon Scanner</div>
+          <div class="app-subtitle">Biomedical Waste QR</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-ghost btn-sm" onclick="window.location.href=window.location.origin + '/docs'" title="API Docs" aria-label="API Docs">
+          <span style="font-size:16px;">📖</span>
+        </button>
+        <button class="btn-ghost btn-sm" id="install-btn" style="display:none;" onclick="promptInstall()" title="Install App" aria-label="Install App">
+          <span style="font-size:16px;">⬇️</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Tab Bar -->
+    <nav class="tab-bar" role="tablist">
+      <button class="tab-btn active" data-tab="scan" role="tab" aria-selected="true" aria-label="Scan QR Code">
+        <span class="tab-icon">📷</span> Scan
+      </button>
+      <button class="tab-btn" data-tab="manual" role="tab" aria-selected="false" aria-label="Manual Entry">
+        <span class="tab-icon">⌨️</span> Enter
+      </button>
+      <button class="tab-btn" data-tab="history" role="tab" aria-selected="false" aria-label="Scan History">
+        <span class="tab-icon">📋</span> History
+        <span class="tab-badge hidden" id="history-badge">0</span>
+      </button>
+      <button class="tab-btn" data-tab="generate" role="tab" aria-selected="false" aria-label="Generate QR">
+        <span class="tab-icon">✨</span> Generate
+      </button>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content" id="main-content">
+
+      <!-- ════════ TAB: Scan ════════ -->
+      <section class="tab-panel active" id="tab-scan" role="tabpanel">
+        <!-- Camera Scanner -->
+        <div class="scanner-container" id="scanner-container">
+          <video id="scanner-video" class="hidden" playsinline autoplay muted></video>
+          <div class="scanner-placeholder" id="scanner-placeholder">
+            <div class="placeholder-icon">📷</div>
+            <p>Start camera to scan QR codes</p>
+            <button class="btn btn-primary btn-sm mt-2" onclick="window.startScanner()">
+              Start Scanner
+            </button>
+          </div>
+          <div class="scanner-frame hidden" id="scanner-frame">
+            <div class="corner-br"></div>
+            <div class="corner-bl"></div>
+            <div class="scanner-line"></div>
+          </div>
+          <div class="loading-overlay hidden" id="scanner-loading">
+            <span class="loading-spinner lg"></span>
+          </div>
+        </div>
+
+        <!-- Scanner Status -->
+        <div class="flex items-center justify-between mb-3" id="scanner-controls">
+          <span class="text-xs text-muted" id="scanner-status">Tap start to enable camera</span>
+          <div class="flex gap-2">
+            <label class="flex items-center gap-1 text-xs text-muted cursor-pointer">
+              <input type="checkbox" id="auto-log-toggle" checked class="form-input" style="width:16px;height:16px;padding:0;">
+              Auto-log
+            </label>
+          </div>
+        </div>
+
+        <!-- Quick Manual Barcode Input -->
+        <div class="form-input-group mb-3">
+          <input type="text" class="form-input" id="quick-barcode-input"
+                 placeholder="Or type/paste barcode..." autocomplete="off" autocorrect="off" spellcheck="false">
+          <button class="btn btn-primary btn-sm" onclick="window.handleQuickBarcode()" style="border-radius:0 var(--radius-sm) var(--radius-sm) 0;">
+            Log
+          </button>
+        </div>
+
+        <!-- Scan Result -->
+        <div class="scan-result hidden" id="scan-result">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-boon flex items-center gap-1">
+              <span>✅</span> QR Code Detected
+            </span>
+            <button class="btn-ghost btn-sm" onclick="window.clearScanResult()" aria-label="Clear">✕</button>
+          </div>
+          <div class="scan-result-content"></div>
+          <div class="flex gap-2 mt-3">
+            <button class="btn btn-primary btn-sm flex-1" id="log-scan-btn" onclick="window.logCurrentScan()">
+              📥 Log to System
+            </button>
+          </div>
+        </div>
+
+        <!-- Recent Scans Preview -->
+        <div class="card mt-3">
+          <div class="card-header">
+            <h3>📋 Recent Scans</h3>
+            <span class="text-xs text-muted" id="recent-count">0</span>
+          </div>
+          <div id="recent-scans">
+            <div class="empty-state">
+              <div class="empty-icon-lg">📷</div>
+              <p>No scans yet</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════ TAB: Manual Entry ════════ -->
+      <section class="tab-panel" id="tab-manual" role="tabpanel">
+        <div class="card">
+          <div class="card-header">
+            <h3>⌨️ Manual Barcode Entry</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label class="form-label">Barcode *</label>
+              <input type="text" class="form-input form-input-lg" id="manual-barcode"
+                     placeholder="Enter or scan barcode..." autocomplete="off" autocorrect="off" spellcheck="false">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Waste Category</label>
+              <div class="flex gap-2 flex-wrap" id="manual-category-chips">
+                <button class="category-chip selected" data-cat="yellow" style="background:rgba(255,215,0,0.1);color:#FFD700;border-color:#34d399;">🟡 Yellow</button>
+                <button class="category-chip" data-cat="red" style="background:rgba(255,68,68,0.1);color:#FF4444;">🔴 Red</button>
+                <button class="category-chip" data-cat="white" style="background:rgba(224,224,224,0.1);color:#E0E0E0;">⚪ White</button>
+                <button class="category-chip" data-cat="blue" style="background:rgba(68,136,255,0.1);color:#4488FF;">🔵 Blue</button>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Waste Type</label>
+                <select class="form-select" id="manual-waste-type">
+                  <option value="general_biomedical">General Biomedical</option>
+                  <option value="human_anatomical">Human Anatomical</option>
+                  <option value="animal_anatomical">Animal Anatomical</option>
+                  <option value="microbiology_biotechnology">Microbiology &amp; Biotechnology</option>
+                  <option value="waste_sharps">Waste Sharps</option>
+                  <option value="discarded_medicines">Discarded Medicines</option>
+                  <option value="cytotoxic_drugs">Cytotoxic Drugs</option>
+                  <option value="contaminated_glass">Contaminated Glass</option>
+                  <option value="contaminated_plastic">Contaminated Plastic</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Weight (kg)</label>
+                <input type="number" class="form-input" id="manual-weight" value="1.0" min="0.1" step="0.1">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Facility</label>
+              <select class="form-select" id="manual-facility">
+                <option value="">Select facility...</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Department</label>
+                <select class="form-select" id="manual-department">
+                  <option value="Emergency">Emergency</option>
+                  <option value="ICU">ICU</option>
+                  <option value="Operation Theater">Operation Theater</option>
+                  <option value="General Ward">General Ward</option>
+                  <option value="Maternity">Maternity</option>
+                  <option value="Pediatrics">Pediatrics</option>
+                  <option value="Pathology Lab">Pathology Lab</option>
+                  <option value="Radiology">Radiology</option>
+                  <option value="Outpatient">Outpatient</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Container</label>
+                <select class="form-select" id="manual-container">
+                  <option value="bag">Plastic Bag</option>
+                  <option value="bin">Waste Bin</option>
+                  <option value="container">Container</option>
+                  <option value="box">Cardboard Box</option>
+                  <option value="sharps_container">Sharps Container</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Scanned By</label>
+              <input type="text" class="form-input" id="manual-scanned-by" placeholder="Your name / Employee ID">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Notes (optional)</label>
+              <textarea class="form-textarea" id="manual-notes" rows="2" placeholder="Additional notes..."></textarea>
+            </div>
+            <button class="btn btn-primary w-full justify-center mt-2" id="manual-log-btn" onclick="window.handleManualLog()">
+              📥 Log to System
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════ TAB: History ════════ -->
+      <section class="tab-panel" id="tab-history" role="tabpanel">
+        <div class="flex items-center justify-between mb-3">
+          <h3 style="font-size:14px;font-weight:600;">Scan History</h3>
+          <div class="flex gap-2">
+            <span class="text-xs text-muted" id="history-total"></span>
+            <button class="btn-ghost btn-sm" onclick="window.loadHistory()" aria-label="Refresh">🔄</button>
+            <button class="btn-ghost btn-sm" id="sync-btn" onclick="window.syncPending()" aria-label="Sync" style="display:none;">
+              <span id="sync-btn-text">⬆️ Sync</span>
+            </button>
+          </div>
+        </div>
+        <div id="history-list">
+          <div class="empty-state">
+            <div class="empty-icon-lg">📋</div>
+            <h3>No scans yet</h3>
+            <p>Scan a QR code or use manual entry</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════ TAB: Generate QR ════════ -->
+      <section class="tab-panel" id="tab-generate" role="tabpanel">
+        <div class="card mb-3">
+          <div class="card-header">
+            <h3>✨ Generate QR Code</h3>
+          </div>
+          <div class="card-body">
+            <form id="generate-form">
+              <div class="form-group">
+                <label class="form-label">Waste Category</label>
+                <div class="flex gap-2 flex-wrap" id="gen-category-chips">
+                  <button type="button" class="category-chip selected" data-cat="yellow" style="background:rgba(255,215,0,0.1);color:#FFD700;border-color:#34d399;">🟡 Yellow</button>
+                  <button type="button" class="category-chip" data-cat="red" style="background:rgba(255,68,68,0.1);color:#FF4444;">🔴 Red</button>
+                  <button type="button" class="category-chip" data-cat="white" style="background:rgba(224,224,224,0.1);color:#E0E0E0;">⚪ White</button>
+                  <button type="button" class="category-chip" data-cat="blue" style="background:rgba(68,136,255,0.1);color:#4488FF;">🔵 Blue</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Waste Type</label>
+                <select class="form-select" id="gen-waste-type">
+                  <option value="general_biomedical">General Biomedical</option>
+                  <option value="human_anatomical">Human Anatomical</option>
+                  <option value="animal_anatomical">Animal Anatomical</option>
+                  <option value="microbiology_biotechnology">Microbiology &amp; Biotechnology</option>
+                  <option value="waste_sharps">Waste Sharps</option>
+                  <option value="discarded_medicines">Discarded Medicines</option>
+                  <option value="cytotoxic_drugs">Cytotoxic Drugs</option>
+                  <option value="contaminated_glass">Contaminated Glass</option>
+                  <option value="contaminated_plastic">Contaminated Plastic</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Facility</label>
+                  <select class="form-select" id="gen-facility">
+                    <option value="">Select facility...</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Weight (kg)</label>
+                  <input type="number" class="form-input" id="gen-weight" value="1.0" min="0.1" step="0.1">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Department</label>
+                  <select class="form-select" id="gen-department">
+                    <option value="Emergency">Emergency</option>
+                    <option value="ICU">ICU</option>
+                    <option value="Operation Theater">Operation Theater</option>
+                    <option value="General Ward">General Ward</option>
+                    <option value="Pathology Lab">Pathology Lab</option>
+                    <option value="Radiology">Radiology</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Container</label>
+                  <select class="form-select" id="gen-container">
+                    <option value="bag">Plastic Bag</option>
+                    <option value="bin">Waste Bin</option>
+                    <option value="container">Container</option>
+                    <option value="box">Cardboard Box</option>
+                    <option value="sharps_container">Sharps Container</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Handler Name</label>
+                <input type="text" class="form-input" id="gen-handler" placeholder="Your name">
+              </div>
+              <button type="submit" class="btn btn-primary w-full justify-center">
+                ✨ Generate QR Code
+              </button>
+            </form>
+          </div>
+        </div>
+        <!-- QR Code Display -->
+        <div class="qr-display hidden" id="qr-display">
+          <img class="qr-image" id="qr-image" alt="Generated QR Code">
+          <div class="qr-info mt-2"></div>
+          <div class="flex gap-2 mt-3 w-full">
+            <button class="btn btn-secondary flex-1" onclick="window.handleDownloadQR()">⬇️ Download</button>
+            <button class="btn btn-secondary flex-1" onclick="window.handlePrintQR()">🖨️ Print</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- FAB: Quick Scan Shortcut -->
+    <button class="btn btn-primary btn-icon-lg fab hidden" id="fab-scan" onclick="window.switchTab('scan')" aria-label="Scan QR Code">
+      📷
+    </button>
   </div>
 
-  <script>
-    let seconds = 6;
-    const countdownEl = document.getElementById('countdown');
-    const spinnerEl = document.getElementById('spinner');
-    const btn = document.getElementById('redirect-btn');
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
 
-    const tick = () => {
-      seconds--;
-      countdownEl.textContent = seconds;
-      if (seconds <= 0) {
-        window.location.href = 'http://localhost:3000/qrcode';
+  <!-- Scripts -->
+  <script src="js/api.js"></script>
+  <script src="js/offline.js"></script>
+  <script src="js/scanner.js"></script>
+  <script src="js/app.js"></script>
+  <!-- Register Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then(reg => {
+        console.log('📱 Boon Scanner SW registered');
+      }).catch(err => {
+        console.warn('⚠️ SW registration failed:', err);
+      });
+    }
+
+    // PWA Install Prompt
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      const btn = document.getElementById('install-btn');
+      if (btn) btn.style.display = 'block';
+    });
+
+    window.promptInstall = async function() {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const result = await deferredPrompt.userChoice;
+      if (result.outcome === 'accepted') {
+        document.getElementById('install-btn').style.display = 'none';
+        showToast('✅ App installed! Open from your home screen.', 'success');
       }
+      deferredPrompt = null;
     };
 
-    // Remove spinner once page is fully loaded (redirect pending)
-    setTimeout(() => {
-      spinnerEl.style.display = 'none';
-    }, 500);
-
-    // Countdown
-    setInterval(tick, 1000);
-
-    // Click handler updates link text
-    btn.addEventListener('click', () => {
-      btn.textContent = '→ Opening QR Code Manager...';
+    // Handle visibility change for camera
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && window.state?.scanner) {
+        // Don't stop — let it keep running in background
+      }
     });
   </script>
 </body>

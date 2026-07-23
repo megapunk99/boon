@@ -14,10 +14,13 @@ import json
 import random
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import get_session
 from app.services.blockchain_service import sathi_network
+from app.services import cpcb_service
 
 router = APIRouter(prefix="/sathi", tags=["Sāthī Network"])
 
@@ -514,69 +517,110 @@ async def create_marketplace_listing(listing: MarketplaceListing):
 
 # ── CPCB Auto-Reporting ──────────────────────────────────────────────────
 
+@router.get("/reports/list")
+async def list_cpcb_reports(
+    facility_id: str | None = Query(None),
+    limit: int = Query(20),
+    offset: int = Query(0),
+    session: AsyncSession = Depends(get_session),
+):
+    """List all CPCB compliance reports, optionally filtered by facility."""
+    reports, total = await cpcb_service.list_reports(session, facility_id, limit, offset)
+    return {
+        "reports": reports,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/reports/{report_id}")
+async def get_cpcb_report(
+    report_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get a specific CPCB report by ID."""
+    report = await cpcb_service.get_report(session, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
+@router.get("/reports/{report_id}/download")
+async def download_cpcb_report(
+    report_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Download a CPCB compliance report as JSON data."""
+    report = await cpcb_service.get_report(session, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
+@router.delete("/reports/{report_id}")
+async def delete_cpcb_report(
+    report_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a CPCB compliance report."""
+    deleted = await cpcb_service.delete_report(session, report_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return {"success": True, "message": f"Report {report_id} deleted"}
+
+
 @router.get("/report/generate")
 async def generate_cpcb_report(
     facility_id: str = Query("FAC-001"),
     month: str | None = Query(None, description="Month in YYYY-MM format"),
+    session: AsyncSession = Depends(get_session),
 ):
-    """Generate a CPCB-compliant compliance report auto-submission."""
+    """Generate and persist a CPCB-compliant compliance report."""
     from data.sample_data import FACILITIES
 
     fac = next((f for f in FACILITIES if f.id == facility_id), None)
     if not fac:
         raise HTTPException(status_code=404, detail="Facility not found")
 
-    report_month = month or datetime.now().strftime("%Y-%m")
-    chains = [
-        c for c in sathi_network._chains.values()
-        if any(
-            b.data.get("location", "").startswith(fac.name)
-            for b in c.chain
-        )
-    ]
-
-    total_waste = sum(
-        b.data.get("weight_kg", 0)
-        for c in chains
-        for b in c.chain
-        if b.data.get("weight_kg")
+    report = await cpcb_service.generate_report(
+        session=session,
+        facility_id=fac.id,
+        facility_name=fac.name,
+        month=month,
     )
 
-    # CPCB format
-    return {
-        "report_id": f"CPCB-SATHI-{fac.id}-{report_month}",
-        "facility": {
-            "name": fac.name,
-            "registration": fac.registration_number,
-            "address": fac.address,
-            "city": fac.city,
-            "state": fac.state,
-        },
-        "reporting_period": report_month,
-        "generated_at": datetime.now().isoformat(),
-        "generated_by": "Sāthī Network — Auto-Compliance Engine",
-        "submission_status": "auto_submitted",
-        "waste_data": {
-            "total_generated_kg": round(total_waste, 1),
-            "items_tracked": len(chains),
-            "blocks_verified": sum(len(c.chain) for c in chains),
-            "chain_integrity": round(
-                sum(1 for c in chains if c.verify_chain()["is_valid"]) / max(len(chains), 1) * 100,
-                1,
-            ),
-        },
-        "compliance_summary": {
-            "segregation_score": round(random.uniform(82, 96), 1),
-            "treatment_score": round(random.uniform(85, 99), 1),
-            "disposal_score": round(random.uniform(88, 100), 1),
-            "overall_compliance": round(random.uniform(80, 95), 1),
-        },
-        "blockchain_verification": {
-            "method": "SHA-256 Merkle Tree",
-            "chains_verified": len(chains),
-            "all_chains_intact": all(c.verify_chain()["is_valid"] for c in chains),
-            "verification_timestamp": datetime.now().isoformat(),
-        },
-        "certification": "CPCB BMW Rules 2016 Compliant",
-        "digital_signature": f"SATHI-VERIFY-{hashlib.sha256(f'{fac.id}-{report_month}-{datetime.now().isoformat()}'.encode()).hexdigest()[:16].upper()}",
+    # Include full facility details
+    report["facility"] = {
+        "name": fac.name,
+        "registration": fac.registration_number,
+        "address": fac.address,
+        "city": fac.city,
+        "state": fac.state,
     }
+    report["generated_by"] = "Sāthī Network — Auto-Compliance Engine"
+    report["submission_status"] = "auto_submitted"
+    report["certification"] = "CPCB BMW Rules 2016 Compliant"
+
+    # Include the full report_data JSON blob for nested structure
+    stored_report = await cpcb_service.get_report(session, report["report_id"])
+    if stored_report and stored_report.get("report_data"):
+        report["waste_data"] = stored_report["report_data"].get("waste_data", {})
+        report["blockchain_verification"] = stored_report["report_data"].get("blockchain_verification", {})
+        report["compliance_summary"] = stored_report["report_data"].get("compliance_summary", {})
+    else:
+        # Fallback: build from flat fields
+        report["waste_data"] = {
+            "total_generated_kg": report.get("total_generated_kg", 0),
+            "items_tracked": report.get("items_tracked", 0),
+            "blocks_verified": report.get("blocks_verified", 0),
+            "chain_integrity": report.get("chain_integrity", 100.0),
+        }
+        report["blockchain_verification"] = {
+            "method": "SHA-256 Merkle Tree",
+            "chains_verified": report.get("items_tracked", 0),
+            "all_chains_intact": report.get("all_chains_intact", True),
+            "verification_timestamp": report.get("generated_at"),
+        }
+
+    return report

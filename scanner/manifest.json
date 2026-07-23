@@ -1,21 +1,56 @@
 {
-  "name": "Boon Scanner — Biomedical Waste QR Logger",
+  "name": "Boon Mobile Scanner — Biomedical Waste QR Logger",
   "short_name": "Boon Scanner",
-  "description": "Scan, generate, and log biomedical waste QR codes to the Boon tracking system. CPCB-compliant waste management.",
-  "start_url": "/",
+  "description": "Scan biomedical waste QR codes and log them to the Boon tracking system. Works offline with auto-sync.",
+  "start_url": "/scanner/",
+  "scope": "/scanner/",
   "display": "standalone",
   "background_color": "#030712",
-  "theme_color": "#030712",
+  "theme_color": "#059669",
   "orientation": "portrait-primary",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "categories": ["utilities", "health", "business"],
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='64' fill='%23059769'/%3E%3Ctext x='256' y='340' text-anchor='middle' font-size='280'%3E🌿%3C/text%3E%3C/svg%3E",
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='64' fill='%23059769'/%3E%3Ctext x='256' y='340' text-anchor='middle' font-size='280' fill='white'%3E🌿%3C/text%3E%3C/svg%3E",
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAUSURBVHgB7cEBAQAAAIIg/69uSEABAAAXBgABP0l4TAAAAABJRU5ErkJggg==",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
-  "categories": ["utilities", "health", "business"],
-  "lang": "en-IN",
-  "dir": "ltr"
+  "screenshots": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='414' height='896'%3E%3Crect width='414' height='896' fill='%23030712'/%3E%3Ctext x='207' y='400' text-anchor='middle' fill='%2334d399' font-size='18' font-family='sans-serif'%3EScanner App%3C/text%3E%3C/svg%3E",
+      "sizes": "414x896",
+      "form_factor": "narrow",
+      "label": "QR Code Scanner"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Scan QR Code",
+      "short_name": "Scan",
+      "description": "Open camera to scan a QR code",
+      "url": "/scanner/?tab=scan",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='24' fill='%23059769'/%3E%3Ctext x='96' y='130' text-anchor='middle' font-size='100' fill='white'%3E📷%3C/text%3E%3C/svg%3E",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Manual Entry",
+      "short_name": "Enter",
+      "description": "Manually enter a barcode",
+      "url": "/scanner/?tab=manual"
+    }
+  ]
 }

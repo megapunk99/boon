@@ -26,6 +26,9 @@ from app.database import get_session
 from app.models.scan_record import ScanRecord
 from app.services import scan_service
 from app.services.blockchain_service import sathi_network
+from app.services.qr_security import sign_qr_data, verify_qr_data
+from app.auth.dependencies import optional_current_user
+from app.auth.models import User
 
 router = APIRouter(prefix="/scanner", tags=["Scanner & QR"])
 
@@ -110,11 +113,16 @@ async def get_categories():
 async def generate_qr(
     request: QRGenerateRequest,
     session: AsyncSession = Depends(get_session),
+    current_user: User | None = Depends(optional_current_user),
 ):
-    """Generate a QR code for a new waste item.
+    """Generate a QR code for a new waste item with a digital certificate.
+
+    The QR payload includes an RSA-2048 digital signature that prevents
+    tampering and forgery. Any modification to the QR data will cause
+    verification to fail.
 
     Returns the QR code as a base64 PNG data URL along with
-    the generated barcode and metadata for printing.
+    the generated barcode, digital signature, and metadata.
     Uses database-backed sequence counter for persistent barcode IDs.
     """
     # Generate unique barcode with DB-persisted sequential ID
@@ -123,8 +131,8 @@ async def generate_qr(
         request.category, request.source_facility, seq
     )
 
-    # Create QR data payload
-    qr_payload = json.dumps({
+    # Create QR data payload with digital certificate (RSA signature)
+    raw_payload = {
         "barcode": barcode,
         "type": "biomedical_waste",
         "waste_type": request.waste_type,
@@ -135,11 +143,16 @@ async def generate_qr(
         "container": request.container_type,
         "generated_at": datetime.now().isoformat(),
         "system": "Boon",
-    })
+        "signature_version": 1,
+    }
+
+    # Sign the payload with RSA digital certificate
+    signed_payload = sign_qr_data(raw_payload)
+    qr_payload = json.dumps(signed_payload)
 
     # Generate QR image
     qr = qrcode.QRCode(
-        version=2,
+        version=4,  # Increased version to accommodate larger signed payload
         error_correction=qrcode.constants.ERROR_CORRECT_H,
         box_size=10,
         border=2,
@@ -181,6 +194,8 @@ async def generate_qr(
         "barcode": barcode,
         "qr_data_url": data_url,
         "qr_payload": qr_payload,
+        "has_digital_signature": True,
+        "signature_algorithm": "RSA-2048-PSS-SHA256",
         "blockchain_registered": blockchain_ok,
         "sathi_trace_url": f"/sathi?barcode={barcode}",
         "metadata": {
@@ -198,6 +213,19 @@ async def generate_qr(
             "durable_material": "Polyester with permanent adhesive",
         },
     }
+
+
+@router.post("/verify-qr")
+async def verify_qr_code(request_data: dict):
+    """Verify the authenticity of a scanned QR code using RSA digital signature.
+
+    This is the key anti-tampering endpoint. The Flutter app sends the
+    raw QR payload and the server verifies its digital certificate.
+
+    Returns whether the QR is authentic, tampered, or expired.
+    """
+    result = verify_qr_data(request_data.get("qr_data", ""))
+    return result
 
 
 @router.post("/log-scan")

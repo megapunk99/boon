@@ -214,3 +214,25 @@ export async function generateCPCBReport(facilityId: string, month?: string) {
   if (month) params.set('month', month);
   return fetchJson<any>(`/sathi/report/generate?${params}`);
 }
+
+export async function listCPCBReports(facilityId?: string, limit = 20, offset = 0) {
+  const params = new URLSearchParams();
+  if (facilityId) params.set('facility_id', facilityId);
+  params.set('limit', String(limit));
+  params.set('offset', String(offset));
+  return fetchJson<any>(`/sathi/reports/list?${params}`);
+}
+
+export async function getCPCBReport(reportId: string) {
+  return fetchJson<any>(`/sathi/reports/${encodeURIComponent(reportId)}`);
+}
+
+export async function downloadCPCBReport(reportId: string) {
+  return fetchJson<any>(`/sathi/reports/${encodeURIComponent(reportId)}/download`);
+}
+
+export async function deleteCPCBReport(reportId: string) {
+  return fetchJson<any>(`/sathi/reports/${encodeURIComponent(reportId)}`, {
+    method: 'DELETE',
+  });
+}

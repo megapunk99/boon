@@ -25,17 +25,20 @@ import Sathi from './pages/Sathi'
 import QRScanner from './pages/QRScanner'
 import MasterHub from './pages/MasterHub'
 import ScannerApp from './pages/ScannerApp'
+import LanguageSelector from './components/LanguageSelector'
+import PWAInstallPrompt from './components/PWAInstallPrompt'
+import OfflineStatus from './components/OfflineStatus'
 
 const NAV_ITEMS = [
-  { path: '/', icon: Home, label: 'Master Hub' },
-  { path: '/qrcode', icon: QrCode, label: 'QR Code Manager' },
-  { path: '/scanner', icon: Camera, label: 'QR Scanner' },
-  { path: '/sathi', icon: Hexagon, label: 'Sāthī Network' },
-  { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { path: '/tracking', icon: Navigation, label: 'Tracking' },
-  { path: '/classification', icon: ScanLine, label: 'AI Classifier' },
-  { path: '/analytics', icon: BarChart3, label: 'Analytics' },
-  { path: '/facilities', icon: Building2, label: 'Facilities' },
+  { path: '/', icon: Home, label: 'nav.master_hub' },
+  { path: '/qrcode', icon: QrCode, label: 'nav.qr_code_manager' },
+  { path: '/scanner', icon: Camera, label: 'nav.qr_scanner' },
+  { path: '/sathi', icon: Hexagon, label: 'nav.sathi_network' },
+  { path: '/dashboard', icon: LayoutDashboard, label: 'nav.dashboard' },
+  { path: '/tracking', icon: Navigation, label: 'nav.tracking' },
+  { path: '/classification', icon: ScanLine, label: 'nav.ai_classifier' },
+  { path: '/analytics', icon: BarChart3, label: 'nav.analytics' },
+  { path: '/facilities', icon: Building2, label: 'nav.facilities' },
 ]
 
 export default function App() {
@@ -119,6 +122,8 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Language Selector */}
+            <LanguageSelector />
             <button className="relative p-2 rounded-lg hover:bg-gray-800 transition-colors">
               <Bell className="w-5 h-5 text-gray-400" />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-gray-900" />
@@ -145,6 +150,12 @@ export default function App() {
           </Routes>
         </main>
       </div>
+
+      {/* PWA Install Prompt */}
+      <PWAInstallPrompt />
+
+      {/* Offline Status */}
+      <OfflineStatus />
     </div>
   )
 }

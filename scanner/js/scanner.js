@@ -1,14 +1,12 @@
 /**
- * 🌿 Boon Scanner — Camera QR Code Scanner
+ * 🌿 Boon Mobile Scanner — Camera QR Code Scanner
  *
  * Uses the device camera to detect and decode QR codes in real-time.
- * Falls back to a manual barcode input if camera is unavailable.
+ * Uses the BarcodeDetector API (Chromium) with manual canvas fallback.
+ * Designed for mobile-first use with the environment (rear) camera.
  */
 
-/**
- * Scanner class that manages camera streaming and QR code detection.
- */
-export class QRScanner {
+class QRScanner {
   constructor(options = {}) {
     this.videoElement = options.videoElement || null;
     this.onResult = options.onResult || (() => {});
@@ -17,7 +15,9 @@ export class QRScanner {
     this.scanning = false;
     this.animationFrame = null;
     this.lastScanTime = 0;
-    this.scanCooldown = 2000; // ms between scans to avoid duplicate reads
+    this.scanCooldown = 1500; // ms between scans
+    this.detector = null;
+    this._detectorReady = false;
   }
 
   /**
@@ -25,26 +25,39 @@ export class QRScanner {
    */
   async start(facingMode = 'environment') {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      const constraints = {
         video: {
           facingMode: { ideal: facingMode },
-          width: { ideal: 640 },
-          height: { ideal: 480 },
+          width: { min: 320, ideal: 640 },
+          height: { min: 240, ideal: 480 },
         },
         audio: false,
-      });
+      };
+
+      this.stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       if (this.videoElement) {
         this.videoElement.srcObject = this.stream;
         await this.videoElement.play();
         this.scanning = true;
+
+        // Initialize barcode detector
+        await this._initDetector();
+
+        // Start the scan loop
         this._scanLoop();
       }
 
       return true;
     } catch (err) {
-      console.warn('Camera access error:', err.message);
-      this.onError(new Error('Camera access denied. Please grant camera permissions or use manual entry.'));
+      console.warn('📷 Camera error:', err.message);
+      if (err.name === 'NotAllowedError') {
+        this.onError(new Error('Camera permission denied. Please grant camera access in your browser settings.'));
+      } else if (err.name === 'NotFoundError') {
+        this.onError(new Error('No camera found on this device.'));
+      } else {
+        this.onError(new Error(`Camera error: ${err.message}`));
+      }
       return false;
     }
   }
@@ -65,26 +78,50 @@ export class QRScanner {
     if (this.videoElement) {
       this.videoElement.srcObject = null;
     }
+    this._detectorReady = false;
   }
 
   /**
-   * Internal scan loop - captures frames and attempts QR detection.
+   * Initialize the BarcodeDetector.
    */
-  async _scanLoop() {
-    if (!this.scanning) return;
+  async _initDetector() {
+    if (!('BarcodeDetector' in window)) {
+      this._detectorReady = false;
+      return;
+    }
 
     try {
-      const now = Date.now();
-      if (now - this.lastScanTime >= this.scanCooldown && this.videoElement) {
-        // Try to detect QR code from video frame
-        const result = await this._detectQRFromFrame();
+      // Check if QR code format is supported
+      const supported = await BarcodeDetector.getSupportedFormats();
+      if (supported.includes('qr_code')) {
+        this.detector = new BarcodeDetector({ formats: ['qr_code'] });
+        this._detectorReady = true;
+      } else {
+        this._detectorReady = false;
+        console.warn('📷 QR code detection not supported on this browser');
+      }
+    } catch (err) {
+      this._detectorReady = false;
+      console.warn('📷 BarcodeDetector init error:', err.message);
+    }
+  }
+
+  /**
+   * Internal scan loop — captures frames and decodes QR codes.
+   */
+  _scanLoop() {
+    if (!this.scanning) return;
+
+    const now = Date.now();
+    if (now - this.lastScanTime >= this.scanCooldown && this.videoElement) {
+      this._detectQRFromFrame().then(result => {
         if (result) {
           this.lastScanTime = now;
           this.onResult(result);
         }
-      }
-    } catch (err) {
-      // Silently continue - scanning is best-effort
+      }).catch(() => {
+        // Silently continue
+      });
     }
 
     this.animationFrame = requestAnimationFrame(() => this._scanLoop());
@@ -92,24 +129,23 @@ export class QRScanner {
 
   /**
    * Attempt to decode a QR code from the current video frame.
-   * Uses the built-in BarcodeDetector API when available (Chrome, Edge).
    */
   async _detectQRFromFrame() {
-    // Use BarcodeDetector API (available in Chromium-based browsers)
-    if ('BarcodeDetector' in window) {
+    // Try native BarcodeDetector API first
+    if (this._detectorReady && this.detector && this.videoElement) {
       try {
-        const detector = new BarcodeDetector({ formats: ['qr_code'] });
-        const barcodes = await detector.detect(this.videoElement);
+        const barcodes = await this.detector.detect(this.videoElement);
         if (barcodes.length > 0) {
           const barcode = barcodes[0];
           return {
             rawValue: barcode.rawValue,
             format: 'QR_CODE',
             detectedAt: new Date().toISOString(),
+            boundingBox: barcode.boundingBox,
           };
         }
       } catch (err) {
-        // BarcodeDetector may fail on some devices
+        // BarcodeDetector may fail intermittently
       }
     }
 
@@ -117,7 +153,7 @@ export class QRScanner {
   }
 
   /**
-   * Attempt to parse a QR code payload (assumes JSON for Boon QR codes).
+   * Parse QR code payload (supports Boon JSON format and plain text).
    */
   parseQRPayload(rawValue) {
     try {
@@ -128,7 +164,7 @@ export class QRScanner {
           barcode: parsed.barcode,
           wasteType: parsed.waste_type,
           category: parsed.category,
-          source: parsed.source,
+          source: parsed.source || parsed.source_facility,
           department: parsed.department,
           weightKg: parsed.weight_kg,
           container: parsed.container,
@@ -136,18 +172,26 @@ export class QRScanner {
           raw: parsed,
         };
       }
+      // Valid JSON but not a Boon QR
+      return {
+        isBoonQR: false,
+        barcode: rawValue.trim(),
+        category: 'yellow',
+        raw: parsed,
+      };
     } catch {
-      // Not JSON - treat as plain barcode
+      // Not JSON — treat as plain barcode
     }
     return {
       isBoonQR: false,
       barcode: rawValue.trim(),
-      raw: rawValue,
+      category: 'yellow',
+      raw: null,
     };
   }
 
   /**
-   * Check if camera is available.
+   * Check if camera hardware is available.
    */
   static async isCameraAvailable() {
     try {
@@ -159,7 +203,7 @@ export class QRScanner {
   }
 
   /**
-   * Check if BarcodeDetector is supported.
+   * Check if BarcodeDetector QR support is available.
    */
   static isBarcodeDetectorSupported() {
     return 'BarcodeDetector' in window;

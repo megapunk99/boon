@@ -1,40 +1,29 @@
 /**
- * 🌿 Boon Scanner — Biomedical Waste QR Scanner & Logger
+ * 🌿 Boon Mobile Scanner — Main Application
  *
- * Main application module that ties together scanning, QR generation,
- * data logging, and the user interface.
+ * Ties together camera scanning, manual entry, QR generation,
+ * history viewing, and offline support for the mobile PWA.
  */
 
-import { checkConnection, logScan, verifyBarcode, getScanHistory, getScannerStats, getIndianHospitals } from './api.js';
-import { QRScanner } from './scanner.js';
-import { generateWasteQR, downloadQRCode, printQRCode } from './generator.js';
-
 // ── State ────────────────────────────────────────────────────────────────
-const state = {
+window.state = {
   connected: false,
   scanning: false,
   currentTab: 'scan',
   hospitals: [],
-  scanHistory: [],
+  recentScans: [],
   stats: null,
   lastResult: null,
   lastGeneratedQR: null,
-  scanner: null,
+  sessionCount: 0,
 };
 
-// ── DOM References ───────────────────────────────────────────────────────
+// ── DOM Shortcuts ────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 
 // ── Toast System ─────────────────────────────────────────────────────────
 function showToast(message, type = 'info') {
-  const container = $('toast-container') || (() => {
-    const el = document.createElement('div');
-    el.id = 'toast-container';
-    el.className = 'toast-container';
-    document.body.prepend(el);
-    return el;
-  })();
-
+  const container = $('toast-container');
   const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
@@ -48,17 +37,17 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.remove(), 300);
   }, 4000);
 }
+window.showToast = showToast;
 
 // ── Tab System ───────────────────────────────────────────────────────────
 function switchTab(tabId) {
-  state.currentTab = tabId;
+  window.state.currentTab = tabId;
 
-  // Update tab buttons
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabId);
+    btn.setAttribute('aria-selected', btn.dataset.tab === tabId);
   });
 
-  // Update panels
   document.querySelectorAll('.tab-panel').forEach(panel => {
     panel.classList.toggle('active', panel.id === `tab-${tabId}`);
   });
@@ -69,101 +58,151 @@ function switchTab(tabId) {
   } else {
     stopScanner();
   }
-
   if (tabId === 'history') {
     loadHistory();
   }
   if (tabId === 'generate') {
-    loadHospitalsDropdown();
+    loadFacilityDropdown('gen-facility');
+  }
+  if (tabId === 'manual') {
+    loadFacilityDropdown('manual-facility');
+  }
+
+  // Update FAB visibility
+  const fab = $('fab-scan');
+  if (fab) {
+    fab.classList.toggle('hidden', tabId === 'scan');
   }
 }
+window.switchTab = switchTab;
 
 // ── Camera Scanner ──────────────────────────────────────────────────────
 async function startScanner() {
   const videoEl = $('scanner-video');
   const placeholder = $('scanner-placeholder');
   const frame = $('scanner-frame');
-  const resultEl = $('scan-result');
+  const loading = $('scanner-loading');
   const statusText = $('scanner-status');
 
-  if (state.scanning) return;
+  if (window.state.scanning) return;
 
-  if (!state.scanner) {
-    state.scanner = new QRScanner({
+  // Check camera availability
+  const available = await QRScanner.isCameraAvailable();
+  if (!available) {
+    placeholder.innerHTML = `
+      <div class="placeholder-icon">📱</div>
+      <p>No camera found on this device</p>
+      <p class="text-xs text-muted mt-1">Use Manual Entry tab instead</p>
+    `;
+    placeholder.classList.remove('hidden');
+    videoEl.classList.add('hidden');
+    statusText.textContent = 'No camera available';
+    return;
+  }
+
+  if (!window.state._scanner) {
+    window.state._scanner = new QRScanner({
       videoElement: videoEl,
       onResult: handleScanResult,
       onError: (err) => {
         showToast(err.message, 'warning');
-        statusText.textContent = 'Camera unavailable — use manual entry';
+        statusText.textContent = 'Camera error — use manual entry';
         placeholder.classList.remove('hidden');
         videoEl.classList.add('hidden');
+        frame.classList.add('hidden');
       },
     });
   }
 
-  const available = await QRScanner.isCameraAvailable();
-  if (available) {
-    const started = await state.scanner.start();
-    if (started) {
-      state.scanning = true;
-      placeholder.classList.add('hidden');
-      videoEl.classList.remove('hidden');
-      if (frame) frame.classList.remove('hidden');
-      statusText.textContent = 'Point camera at a QR code';
-      showToast('Camera active — scanning for QR codes', 'success');
-    }
+  if (loading) loading.classList.remove('hidden');
+  statusText.textContent = 'Starting camera...';
+
+  const started = await window.state._scanner.start();
+  if (loading) loading.classList.add('hidden');
+
+  if (started) {
+    window.state.scanning = true;
+    placeholder.classList.add('hidden');
+    videoEl.classList.remove('hidden');
+    frame.classList.remove('hidden');
+    statusText.textContent = '📷 Point camera at a QR code';
+    showToast('📷 Scanner active', 'success');
+    updateScanControls();
   } else {
+    placeholder.innerHTML = `
+      <div class="placeholder-icon">🚫</div>
+      <p>Camera access denied</p>
+      <p class="text-xs text-muted mt-1">Grant camera permission and try again</p>
+      <button class="btn btn-primary btn-sm mt-2" onclick="startScanner()">Retry</button>
+    `;
     placeholder.classList.remove('hidden');
     videoEl.classList.add('hidden');
-    statusText.textContent = 'No camera found';
+    statusText.textContent = 'Camera permission denied';
   }
 }
+window.startScanner = startScanner;
 
 function stopScanner() {
-  if (state.scanner) {
-    state.scanner.stop();
+  if (window.state._scanner) {
+    window.state._scanner.stop();
   }
-  state.scanning = false;
+  window.state.scanning = false;
+  updateScanControls();
+
+  const statusText = $('scanner-status');
+  if (statusText) statusText.textContent = 'Scanner stopped';
 }
+window.stopScanner = stopScanner;
 
-function handleScanResult(result) {
-  const parsed = state.scanner.parseQRPayload(result.rawValue);
-  
-  state.lastResult = parsed;
-  showToast(`QR Code detected: ${parsed.barcode}`, 'success');
+function updateScanControls() {
+  const statusText = $('scanner-status');
+  if (!statusText) return;
 
-  // Auto-verify if connected
-  if (state.connected) {
-    verifyBarcode(parsed.barcode).then(verifyResult => {
-      displayScanResult(parsed, verifyResult);
-    }).catch(() => {
-      displayScanResult(parsed, null);
-    });
+  if (window.state.scanning) {
+    statusText.textContent = '📷 Point camera at a QR code';
   } else {
-    displayScanResult(parsed, null);
+    statusText.textContent = 'Tap start to enable camera';
   }
-
-  // Auto-switch to result view or show in modal
-  updateRecentScan(parsed);
 }
 
-function displayScanResult(parsed, verifyResult) {
+// ── Handle QR Scan Result ────────────────────────────────────────────────
+function handleScanResult(result) {
+  const parsed = window.state._scanner.parseQRPayload(result.rawValue);
+  window.state.lastResult = parsed;
+  window.state.sessionCount++;
+
+  // Flash effect
+  const flash = document.createElement('div');
+  flash.className = 'flash-overlay';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 200);
+
+  showToast(`📸 QR Code: ${parsed.barcode}`, 'success');
+
+  // Auto-log if enabled
+  const autoLog = $('auto-log-toggle')?.checked;
+  if (autoLog) {
+    autoLogScan(parsed);
+  }
+
+  // Display result
+  displayScanResult(parsed);
+  addRecentScan(parsed);
+
+  // Vibrate on mobile
+  if (navigator.vibrate) navigator.vibrate(100);
+}
+window.handleScanResult = handleScanResult;
+
+function displayScanResult(parsed) {
   const resultEl = $('scan-result');
   const content = resultEl.querySelector('.scan-result-content');
-
-  const isVerified = verifyResult?.verified;
-  const statusBadge = isVerified
-    ? '<span class="badge badge-green">✓ Verified in Boon</span>'
-    : '<span class="badge badge-yellow">Unverified</span>';
+  const logBtn = $('log-scan-btn');
 
   content.innerHTML = `
-    <div class="flex items-center justify-between mb-3">
-      <span class="text-sm font-bold">Scan Result</span>
-      ${statusBadge}
-    </div>
     <div class="scan-result-item">
       <span class="scan-result-label">Barcode</span>
-      <span class="scan-result-value font-mono">${parsed.barcode}</span>
+      <span class="scan-result-value font-mono text-boon">${parsed.barcode}</span>
     </div>
     <div class="scan-result-item">
       <span class="scan-result-label">Category</span>
@@ -171,7 +210,7 @@ function displayScanResult(parsed, verifyResult) {
     </div>
     <div class="scan-result-item">
       <span class="scan-result-label">Waste Type</span>
-      <span class="scan-result-value">${(parsed.wasteType || parsed.raw?.waste_type || '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+      <span class="scan-result-value">${(parsed.wasteType || parsed.raw?.waste_type || '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Unknown'}</span>
     </div>
     ${parsed.source ? `<div class="scan-result-item">
       <span class="scan-result-label">Source</span>
@@ -183,21 +222,124 @@ function displayScanResult(parsed, verifyResult) {
     </div>` : ''}
   `;
 
+  logBtn.textContent = '📥 Log to System';
+  logBtn.disabled = false;
   resultEl.classList.remove('hidden');
+
+  // Scroll to result
+  resultEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-function updateRecentScan(parsed) {
+function clearScanResult() {
+  window.state.lastResult = null;
+  $('scan-result').classList.add('hidden');
+}
+window.clearScanResult = clearScanResult;
+
+// ── Auto-log scan ────────────────────────────────────────────────────────
+async function autoLogScan(parsed) {
+  const barcode = parsed.barcode;
+  const payload = parsed.raw || {};
+
+  const logData = {
+    barcode: barcode,
+    waste_type: payload.waste_type || 'general_biomedical',
+    category: payload.category || 'yellow',
+    weight_kg: payload.weight_kg || 1.0,
+    source_facility: payload.source || payload.source_facility || 'Unknown Facility',
+    department: payload.department || 'General Ward',
+    container_type: payload.container || 'bag',
+    scanned_by: 'Mobile Scanner',
+    notes: `Scanned via Boon Mobile Scanner at ${new Date().toISOString()}`,
+  };
+
+  try {
+    await logScan(logData);
+    updateLogButton(true);
+    reloadStats();
+    showToast(`✅ Logged: ${barcode}`, 'success');
+  } catch (err) {
+    // Offline — save to queue
+    if (!navigator.onLine || err.message?.includes('fetch') || err.message?.includes('Abort')) {
+      await enqueueScan(logData);
+      updateSyncBadge();
+      updateLogButton(true);
+      showToast(`📦 Queued for sync: ${barcode}`, 'info');
+    } else {
+      updateLogButton(false, err.message);
+      showToast(`❌ Log failed: ${err.message}`, 'error');
+    }
+  }
+}
+
+// ── Manual log of current scan result ────────────────────────────────────
+async function logCurrentScan() {
+  const parsed = window.state.lastResult;
+  if (!parsed) return;
+
+  const btn = $('log-scan-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Logging...';
+
+  await autoLogScan(parsed);
+}
+window.logCurrentScan = logCurrentScan;
+
+function updateLogButton(success, errorMsg) {
+  const btn = $('log-scan-btn');
+  if (!btn) return;
+  if (success) {
+    btn.textContent = '✅ Logged';
+    btn.disabled = true;
+  } else {
+    btn.textContent = `❌ Failed${errorMsg ? ': ' + errorMsg.slice(0, 30) : ''}`;
+    btn.disabled = false;
+  }
+}
+
+// ── Quick barcode from scan tab ──────────────────────────────────────────
+async function handleQuickBarcode() {
+  const input = $('quick-barcode-input');
+  const barcode = input.value.trim();
+  if (!barcode) {
+    showToast('Please enter a barcode', 'warning');
+    return;
+  }
+  input.value = '';
+
+  const parsed = {
+    barcode: barcode,
+    category: 'yellow',
+    isBoonQR: false,
+    raw: null,
+  };
+  window.state.lastResult = parsed;
+  displayScanResult(parsed);
+  addRecentScan(parsed);
+
+  const autoLog = $('auto-log-toggle')?.checked;
+  if (autoLog) {
+    await autoLogScan(parsed);
+  }
+}
+window.handleQuickBarcode = handleQuickBarcode;
+
+// ── Recent Scans List ────────────────────────────────────────────────────
+function addRecentScan(parsed) {
   const list = $('recent-scans');
+  const count = $('recent-count');
   if (!list) return;
 
+  // Remove empty state
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+
   const item = document.createElement('div');
-  item.className = 'history-item';
+  item.className = 'history-item mb-2';
   item.innerHTML = `
-    <div class="history-icon" style="background: rgba(16,185,129,0.15);">
-      📷
-    </div>
+    <div class="history-icon" style="background:rgba(16,185,129,0.15);">📷</div>
     <div class="history-info">
-      <div class="history-title">${parsed.barcode}</div>
+      <div class="history-title font-mono">${parsed.barcode}</div>
       <div class="history-meta">
         <span>${parsed.category || 'Unknown'}</span>
         <span class="dot"></span>
@@ -205,68 +347,223 @@ function updateRecentScan(parsed) {
       </div>
     </div>
   `;
+  item.onclick = () => {
+    if (parsed.barcode && window.state.connected) {
+      window.open(`/sathi?barcode=${parsed.barcode}`, '_blank');
+    }
+  };
 
   list.prepend(item);
-  if (list.children.length > 5) {
-    list.lastChild.remove();
-  }
+  window.state.recentScans.unshift(parsed);
+  if (list.children.length > 10) list.lastChild.remove();
+  if (count) count.textContent = String(list.children.length);
 }
 
-// ── Manual Barcode Entry ────────────────────────────────────────────────
-async function handleManualBarcode() {
-  const input = $('manual-barcode');
-  const barcode = input.value.trim();
+// ── Manual Log Submission ────────────────────────────────────────────────
+async function handleManualLog() {
+  const barcode = $('manual-barcode').value.trim();
   if (!barcode) {
     showToast('Please enter a barcode', 'warning');
     return;
   }
 
-  input.value = '';
-  const placeholder = $('scanner-placeholder');
+  const btn = $('manual-log-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Logging...';
 
-  // Show scanning feedback
-  placeholder.classList.remove('hidden');
-  placeholder.innerHTML = `
-    <div class="loading-spinner lg"></div>
-    <p>Verifying barcode...</p>
-  `;
+  const data = {
+    barcode: barcode,
+    waste_type: $('manual-waste-type').value,
+    category: getSelectedCategory('manual'),
+    weight_kg: parseFloat($('manual-weight').value) || 1.0,
+    source_facility: $('manual-facility').value || 'Unknown Facility',
+    department: $('manual-department').value,
+    container_type: $('manual-container').value,
+    scanned_by: $('manual-scanned-by').value || 'Mobile Scanner',
+    notes: $('manual-notes').value || `Manually logged via Boon Mobile Scanner`,
+  };
 
   try {
-    const result = await verifyBarcode(barcode);
-    placeholder.classList.add('hidden');
-    handleScanResult({
-      rawValue: JSON.stringify({
-        barcode,
-        type: 'biomedical_waste',
-        waste_type: result.waste_type || 'unknown',
-        category: result.category || 'unknown',
-        source: result.source || 'Unknown',
-      }),
-    });
+    await logScan(data);
+    showToast(`✅ Logged: ${barcode}`, 'success');
+    $('manual-barcode').value = '';
+    $('manual-notes').value = '';
+    reloadStats();
+    if (typeof loadHistory === 'function') loadHistory();
   } catch (err) {
-    // Unknown barcode — offer to register
-    placeholder.innerHTML = `
-      <div class="placeholder-icon">❓</div>
-      <p>Barcode not found in system</p>
-      <button onclick="switchTab('generate')" class="btn btn-primary btn-sm mt-2">
-        Register New Item
-      </button>
+    if (!navigator.onLine || err.message?.includes('fetch') || err.message?.includes('Abort')) {
+      await enqueueScan(data);
+      updateSyncBadge();
+      showToast(`📦 Queued for sync: ${barcode}`, 'info');
+    } else {
+      showToast(`❌ ${err.message}`, 'error');
+    }
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '📥 Log to System';
+}
+window.handleManualLog = handleManualLog;
+
+// ── History ──────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const list = $('history-list');
+  const total = $('history-total');
+  if (!list) return;
+
+  list.innerHTML = '<div class="flex justify-center py-8"><span class="loading-spinner lg"></span></div>';
+
+  try {
+    const data = await getScanHistory(50, 0);
+    const items = data.items || [];
+
+    if (total) total.textContent = `${data.total || items.length} scans`;
+
+    if (items.length === 0) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon-lg">📋</div>
+          <h3>No scans yet</h3>
+          <p>Scan a QR code or use manual entry to begin</p>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = items.map(item => {
+      const catColor = item.category === 'yellow' ? '#FFD700' :
+                       item.category === 'red' ? '#FF4444' :
+                       item.category === 'white' ? '#E0E0E0' :
+                       item.category === 'blue' ? '#4488FF' : '#666';
+      const catEmoji = item.category === 'yellow' ? '🟡' :
+                       item.category === 'red' ? '🔴' :
+                       item.category === 'white' ? '⚪' :
+                       item.category === 'blue' ? '🔵' : '⚪';
+      const time = item.scanned_at ? new Date(item.scanned_at).toLocaleString() : '';
+      return `
+        <div class="history-item mb-2" onclick="window.open('/sathi?barcode=${encodeURIComponent(item.barcode)}','_blank')">
+          <div class="history-icon" style="background:${catColor}22;">
+            <span style="font-size:16px;">${catEmoji}</span>
+          </div>
+          <div class="history-info">
+            <div class="history-title font-mono">${item.barcode}</div>
+            <div class="history-meta">
+              <span>${item.source_facility?.slice(0, 20)}</span>
+              <span class="dot"></span>
+              <span>${(item.waste_type || '').replace(/_/g, ' ').slice(0, 15)}</span>
+            </div>
+          </div>
+          <div class="text-right shrink-0">
+            <span class="text-xs font-bold">${item.weight_kg} kg</span>
+            <div class="text-xs text-muted">${time}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon-lg">🔌</div>
+        <h3>Connection Error</h3>
+        <p>Could not load history. Check backend connection.</p>
+        <button class="btn btn-primary btn-sm mt-2" onclick="loadHistory()">Retry</button>
+      </div>
     `;
-    showToast('Barcode not found — register as new item', 'warning');
+  }
+}
+window.loadHistory = loadHistory;
+
+// ── Stats ────────────────────────────────────────────────────────────────
+async function reloadStats() {
+  try {
+    const data = await getScannerStats();
+    window.state.stats = data;
+    window.state.connected = true;
+    updateConnectionStatus(true);
+  } catch {
+    window.state.connected = false;
+    updateConnectionStatus(false);
   }
 }
 
-// ── QR Code Generation ──────────────────────────────────────────────────
-async function handleGenerateQR() {
-  const form = $('generate-form');
+function updateConnectionStatus(connected) {
+  const dot = $('status-dot');
+  const text = $('status-text');
+  if (!dot || !text) return;
+
+  if (connected) {
+    dot.className = 'status-dot online';
+    text.textContent = 'Connected to Boon';
+  } else {
+    dot.className = 'status-dot offline';
+    text.textContent = 'Offline — scans stored locally';
+  }
+}
+
+// ── Category Chip Selection ──────────────────────────────────────────────
+function getSelectedCategory(prefix) {
+  const chips = document.querySelectorAll(`#${prefix}-category-chips .category-chip`);
+  const selected = chips.querySelector('.selected');
+  return selected ? selected.dataset.cat : 'yellow';
+}
+
+function setupCategoryChips(prefix) {
+  const chips = document.querySelectorAll(`#${prefix}-category-chips .category-chip`);
+  chips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      chips.forEach(c => {
+        c.classList.remove('selected');
+        c.style.borderColor = 'transparent';
+      });
+      chip.classList.add('selected');
+      chip.style.borderColor = '#34d399';
+    });
+  });
+}
+
+// ── Facility Dropdown ────────────────────────────────────────────────────
+async function loadFacilityDropdown(selectId) {
+  const select = $(selectId);
+  if (!select || select.options.length > 1) return;
+
+  try {
+    const data = await getIndianHospitals();
+    const hospitals = data.hospitals || [];
+    hospitals.forEach(h => {
+      const opt = document.createElement('option');
+      opt.value = h.name;
+      opt.textContent = `${h.name} (${h.city}, ${h.state})`;
+      select.appendChild(opt);
+    });
+  } catch {
+    // Fallback facilities
+    const fallback = [
+      'AIIMS New Delhi', 'Fortis Memorial Gurugram', 'Apollo Chennai',
+      'Tata Memorial Mumbai', 'NIMHANS Bangalore', 'CMC Vellore',
+      'PGIMER Chandigarh', 'Medanta Medicity', 'KEM Hospital Mumbai',
+      'Sir Ganga Ram Hospital Delhi',
+    ];
+    fallback.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    });
+  }
+}
+
+// ── Generate QR Form ────────────────────────────────────────────────────
+async function handleGenerateQR(e) {
+  e.preventDefault();
+
   const data = {
-    waste_type: form.querySelector('#gen-waste-type').value,
-    category: form.querySelector('#gen-category').value,
-    source_facility: form.querySelector('#gen-facility').value,
-    department: form.querySelector('#gen-department').value || 'General',
-    weight_kg: parseFloat(form.querySelector('#gen-weight').value) || 1.0,
-    container_type: form.querySelector('#gen-container').value,
-    handler_name: form.querySelector('#gen-handler').value || 'Scanner Operator',
+    waste_type: $('gen-waste-type').value,
+    category: getSelectedCategory('gen'),
+    source_facility: $('gen-facility').value,
+    department: $('gen-department').value || 'General',
+    weight_kg: parseFloat($('gen-weight').value) || 1.0,
+    container_type: $('gen-container').value,
+    handler_name: $('gen-handler').value || 'Mobile Scanner',
   };
 
   if (!data.waste_type || !data.category || !data.source_facility) {
@@ -274,19 +571,17 @@ async function handleGenerateQR() {
     return;
   }
 
-  // Show loading
-  const btn = form.querySelector('button[type="submit"]');
+  const btn = e.target.querySelector('button[type="submit"]');
   const originalText = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<span class="loading-spinner"></span> Generating...';
 
   try {
-    const result = await generateWasteQR(data);
-    state.lastGeneratedQR = result;
+    const result = await generateQR(data);
+    window.state.lastGeneratedQR = result;
 
-    // Display QR code
     const display = $('qr-display');
-    const img = display.querySelector('.qr-image');
+    const img = $('qr-image');
     const info = display.querySelector('.qr-info');
 
     img.src = result.qr_data_url;
@@ -294,27 +589,27 @@ async function handleGenerateQR() {
 
     info.innerHTML = `
       <div class="flex items-center gap-2 mt-3">
-        <span class="badge badge-green">✓ Generated</span>
+        <span class="badge badge-green">✅ Generated</span>
         <span class="text-xs text-muted font-mono">${result.barcode}</span>
       </div>
       <div class="data-preview mt-2">
         <dt>Barcode</dt>
-        <dd class="font-mono">${result.barcode}</dd>
+        <dd class="font-mono text-boon">${result.barcode}</dd>
         <dt>Category</dt>
         <dd>${data.category}</dd>
         <dt>Waste</dt>
         <dd>${data.waste_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</dd>
         <dt>Weight</dt>
         <dd>${data.weight_kg} kg</dd>
-        <dt>Department</dt>
-        <dd>${data.department}</dd>
+        <dt>Blockchain</dt>
+        <dd>${result.blockchain_registered ? '✅ Registered' : '⚠️ Skipped'}</dd>
       </div>
     `;
 
     display.classList.remove('hidden');
-    showToast(`QR Code generated: ${result.barcode}`, 'success');
+    showToast(`✅ QR Generated: ${result.barcode}`, 'success');
 
-    // Auto-log to system
+    // Auto-log
     try {
       await logScan({
         barcode: result.barcode,
@@ -325,229 +620,118 @@ async function handleGenerateQR() {
         department: data.department,
         container_type: data.container_type,
         scanned_by: data.handler_name,
-        notes: 'Generated via Boon Scanner app',
+        notes: 'Generated via Boon Mobile Scanner',
       });
-      showToast('Item synced to Boon system ✅', 'success');
-      loadStats();
-    } catch (err) {
-      showToast('QR generated but sync pending — backend may be offline', 'warning');
+      showToast('✅ Item synced to Boon', 'success');
+      reloadStats();
+    } catch {
+      // OK if auto-log fails
     }
   } catch (err) {
     showToast(err.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = originalText;
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = originalText;
+}
+window.handleGenerateQR = handleGenerateQR;
+
+// ── QR Actions ───────────────────────────────────────────────────────────
+function handleDownloadQR() {
+  if (window.state.lastGeneratedQR) {
+    const link = document.createElement('a');
+    link.download = `boon-${window.state.lastGeneratedQR.barcode}.png`;
+    link.href = window.state.lastGeneratedQR.qr_data_url;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('✅ QR code downloaded', 'success');
   }
 }
+window.handleDownloadQR = handleDownloadQR;
 
-// ── History ─────────────────────────────────────────────────────────────
-async function loadHistory() {
-  const list = $('history-list');
-  if (!list) return;
-
-  list.innerHTML = '<div class="flex justify-center py-8"><span class="loading-spinner lg"></span></div>';
-
-  try {
-    const data = await getScanHistory(20, 0);
-    state.scanHistory = data.items || [];
-
-    if (state.scanHistory.length === 0) {
-      list.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">📋</div>
-          <h3>No scans yet</h3>
-          <p>Scan or generate your first QR code to see history here</p>
-        </div>
-      `;
-      return;
-    }
-
-    list.innerHTML = state.scanHistory.map(item => {
-      const catColors = { yellow: '#FFD700', red: '#FF4444', white: '#E0E0E0', blue: '#4488FF' };
-      const catColor = catColors[item.category] || '#666';
-      return `
-        <div class="history-item">
-          <div class="history-icon" style="background: ${catColor}22;">
-            <span style="font-size:14px;">${item.category === 'yellow' ? '🟡' : item.category === 'red' ? '🔴' : item.category === 'white' ? '⚪' : '🔵'}</span>
-          </div>
-          <div class="history-info">
-            <div class="history-title">${item.barcode}</div>
-            <div class="history-meta">
-              <span>${item.source_facility}</span>
-              <span class="dot"></span>
-              <span>${item.waste_type.replace(/_/g, ' ').slice(0, 20)}</span>
-            </div>
-          </div>
-          <div class="text-right">
-            <span class="text-xs text-muted">${item.weight_kg} kg</span>
-            <div class="text-xs text-muted mt-1">${new Date(item.scanned_at).toLocaleTimeString()}</div>
-          </div>
-        </div>
-      `;
-    }).join('');
-  } catch (err) {
-    list.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🔌</div>
-        <h3>Connection Error</h3>
-        <p>Could not load scan history. Make sure the backend is running.</p>
-      </div>
-    `;
-  }
+function handlePrintQR() {
+  if (!window.state.lastGeneratedQR) return;
+  const w = window.open('', '_blank', 'width=400,height=400');
+  if (!w) return;
+  w.document.write(`
+    <!DOCTYPE html><html><head><title>Boon QR Label</title>
+    <style>body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:sans-serif;background:#fff;}img{width:220px;height:220px;image-rendering:pixelated;margin:20px;}h3{font-size:16px;color:#333;}.meta{font-size:10px;color:#999;margin-top:8px;}</style></head>
+    <body><img src="${window.state.lastGeneratedQR.qr_data_url}" alt="QR"/><h3>${window.state.lastGeneratedQR.barcode}</h3><p class="meta">Boon Biomedical Waste • ${new Date().toLocaleDateString()}</p>
+    <script>window.onload=()=>{window.print();window.close()};<\/script></body></html>
+  `);
+  w.document.close();
 }
-
-// ── Stats ───────────────────────────────────────────────────────────────
-async function loadStats() {
-  try {
-    const data = await getScannerStats();
-    state.stats = data;
-
-    $('stat-total').textContent = data.total_scans || 0;
-    $('stat-today').textContent = data.today_scans || 0;
-    $('stat-weight').textContent = `${data.total_weight_kg || 0} kg`;
-    $('stat-barcodes').textContent = data.unique_barcodes || 0;
-
-    // Update connection status
-    state.connected = true;
-    $('status-dot').className = 'status-dot online';
-    $('status-text').textContent = 'Connected to Boon';
-  } catch {
-    state.connected = false;
-    $('status-dot').className = 'status-dot offline';
-    $('status-text').textContent = 'Offline — scans stored locally';
-  }
-}
-
-// ── Hospital Dropdown ───────────────────────────────────────────────────
-async function loadHospitalsDropdown() {
-  const select = $('gen-facility');
-  if (!select || select.options.length > 1) return;
-
-  try {
-    const data = await getIndianHospitals();
-    state.hospitals = data.hospitals || [];
-    state.hospitals.forEach(h => {
-      const opt = document.createElement('option');
-      opt.value = h.name;
-      opt.textContent = `${h.name} (${h.city}, ${h.state})`;
-      select.appendChild(opt);
-    });
-  } catch {
-    // Use local fallback list
-    const fallback = ['AIIMS New Delhi', 'Fortis Memorial Gurugram', 'Apollo Chennai', 'Tata Memorial Mumbai', 'NIMHANS Bangalore', 'CMC Vellore', 'PGIMER Chandigarh', 'Medanta Medicity'];
-    fallback.forEach(name => {
-      const opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
-      select.appendChild(opt);
-    });
-  }
-}
-
-// ── QR Code Actions ─────────────────────────────────────────────────────
-window.handlePrintQR = function() {
-  if (state.lastGeneratedQR) {
-    printQRCode(state.lastGeneratedQR.qr_data_url, state.lastGeneratedQR.barcode);
-  }
-};
-
-window.handleDownloadQR = function() {
-  if (state.lastGeneratedQR) {
-    downloadQRCode(state.lastGeneratedQR.qr_data_url, `boon-${state.lastGeneratedQR.barcode}.png`);
-    showToast('QR code downloaded', 'success');
-  }
-};
-
-window.handleManualScan = handleManualBarcode;
-
-/**
- * Set up click handlers on category chips to sync with the hidden select.
- */
-function setupCategoryChips() {
-  const chips = document.querySelectorAll('.category-chip');
-  const select = document.getElementById('gen-category');
-  if (!chips.length || !select) return;
-
-  chips.forEach(chip => {
-    chip.addEventListener('click', () => {
-      const cat = chip.dataset.cat;
-      // Update the hidden select value
-      select.value = cat;
-      // Update visual state — remove selected from all, add to clicked
-      chips.forEach(c => {
-        c.classList.remove('selected');
-        c.style.borderColor = 'transparent';
-      });
-      chip.classList.add('selected');
-      chip.style.borderColor = cat === 'yellow' ? '#34d399' : cat === 'red' ? '#FF4444' : cat === 'white' ? '#94a3b8' : '#4488FF';
-    });
-  });
-
-  // Filter waste type options by selected category
-  const wasteTypeSelect = document.getElementById('gen-waste-type');
-  if (select && wasteTypeSelect) {
-    const filterByCategory = () => {
-      const cat = select.value;
-      const optGroups = wasteTypeSelect.querySelectorAll('optgroup');
-      optGroups.forEach(group => {
-        group.style.display = group.label.toLowerCase().includes(cat) ? '' : 'none';
-      });
-    };
-    select.addEventListener('change', filterByCategory);
-    filterByCategory(); // Run on init
-  }
-}
+window.handlePrintQR = handlePrintQR;
 
 // ── Initialization ───────────────────────────────────────────────────────
 async function init() {
-  // Set up tab switching
+  showToast('🌿 Boon Scanner loading...', 'info');
+
+  // Tab switching
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
-  // Initialize category chips
-  setupCategoryChips();
+  // Setup category chips
+  setupCategoryChips('manual');
+  setupCategoryChips('gen');
 
-  // Manual barcode entry
+  // Manual barcode enter key
   $('manual-barcode')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') handleManualBarcode();
+    if (e.key === 'Enter') handleManualLog();
   });
 
-  // Generate form
-  $('generate-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    handleGenerateQR();
+  // Quick barcode enter key
+  $('quick-barcode-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleQuickBarcode();
   });
 
-  // Backend health check
+  // Generate form submit
+  $('generate-form')?.addEventListener('submit', handleGenerateQR);
+
+  // Check backend connectivity
   const isConnected = await checkConnection();
-  state.connected = isConnected;
-  $('status-dot').className = isConnected ? 'status-dot online' : 'status-dot offline';
-  $('status-text').textContent = isConnected ? 'Connected to Boon' : 'Offline';
+  window.state.connected = isConnected;
+  updateConnectionStatus(isConnected);
 
-  // Load initial data
-  loadStats();
-  
-  if (state.currentTab === 'scan') {
+  // Initial data load
+  reloadStats();
+  loadFacilityDropdown('manual-facility');
+  loadFacilityDropdown('gen-facility');
+
+  // Auto-start scanner if on scan tab
+  if (window.state.currentTab === 'scan') {
     startScanner();
   }
-  if (state.currentTab === 'generate') {
-    loadHospitalsDropdown();
+
+  // Check offline queue
+  try {
+    const count = await getPendingCount();
+    if (count > 0) {
+      updateSyncBadge();
+      showToast(`📦 ${count} offline scan(s) pending sync`, 'info');
+      if (navigator.onLine) {
+        syncPendingScans();
+      }
+    }
+  } catch {
+    // Offline queue not available
   }
 
-  // Periodic connection check
-  setInterval(loadStats, 15000);
+  // Initialize auto-sync
+  initAutoSync();
 
-  console.log('🌿 Boon Scanner initialized');
-  showToast('Boon Scanner ready' + (isConnected ? ' — connected to Boon system' : ' — offline mode'), isConnected ? 'success' : 'warning');
+  // Periodic connection check
+  setInterval(reloadStats, 30000);
+
+  console.log('🌿 Boon Mobile Scanner initialized');
+  showToast(isConnected ? '✅ Connected to Boon system' : '📡 Offline mode', isConnected ? 'success' : 'warning');
 }
 
-// Start when DOM is ready
+// ── Start ────────────────────────────────────────────────────────────────
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
 }
-
-// Expose switchTab globally for inline onclick
-window.switchTab = switchTab;

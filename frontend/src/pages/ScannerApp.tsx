@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { Html5Qrcode } from 'html5-qrcode'
 import * as api from '../services/api'
+import { enqueueScan } from '../services/offline'
 
 // ── Types ────────────────────────────────────────────────────────────────
 interface ScanResult {
@@ -122,8 +123,6 @@ export default function ScannerApp() {
       return
     }
 
-    if (!scannerContainerRef.current) return
-
     try {
       const scanner = new Html5Qrcode('scanner-viewfinder')
       scannerRef.current = scanner
@@ -171,11 +170,36 @@ export default function ScannerApp() {
                 scanned_by: form.scanned_by || 'Scanner Operator',
                 notes: `Scanned via Boon Camera Scanner: ${payload.barcode || barcode}`,
               }
-              await api.logScan(logData)
-              scanEntry.logged = true
-              refreshData()
-              setSuccessMessage(`✓ Scanned & logged: ${logData.barcode}`)
-              setTimeout(() => setSuccessMessage(null), 3000)
+              try {
+                await api.logScan(logData)
+                scanEntry.logged = true
+                refreshData()
+                setSuccessMessage(`✓ Scanned & logged: ${logData.barcode}`)
+                setTimeout(() => setSuccessMessage(null), 3000)
+              } catch (apiErr: any) {
+                // If backend is unreachable, save to offline queue
+                if (!navigator.onLine || apiErr.message?.includes('fetch')) {
+                  await enqueueScan({
+                    barcode: logData.barcode,
+                    waste_type: logData.waste_type,
+                    category: logData.category,
+                    weight_kg: logData.weight_kg,
+                    source_facility: logData.source_facility,
+                    department: logData.department,
+                    container_type: logData.container_type,
+                    scanned_by: logData.scanned_by,
+                    notes: logData.notes + ' (scanned offline, queued for sync)',
+                    scanned_at: new Date().toISOString(),
+                    synced: false,
+                    sync_failures: 0,
+                  })
+                  scanEntry.logged = true
+                  setSuccessMessage(`✓ Queued for sync: ${logData.barcode}`)
+                  setTimeout(() => setSuccessMessage(null), 4000)
+                } else {
+                  throw apiErr
+                }
+              }
             } catch (err: any) {
               scanEntry.logged = false
               scanEntry.log_error = err.message
@@ -222,20 +246,44 @@ export default function ScannerApp() {
     setLoading(true)
     setError(null)
     try {
-      await api.logScan({
-        barcode: form.barcode.trim(),
-        waste_type: form.waste_type || 'unknown',
-        category: form.category,
-        weight_kg: form.weight_kg,
-        source_facility: form.source_facility || 'Unknown Facility',
-        department: form.department,
-        container_type: form.container_type,
-        scanned_by: form.scanned_by,
-        notes: form.notes || 'Manually entered via Boon Scanner',
-      })
-      setSuccessMessage(`✓ Logged: ${form.barcode.trim()}`)
+      try {
+        await api.logScan({
+          barcode: form.barcode.trim(),
+          waste_type: form.waste_type || 'unknown',
+          category: form.category,
+          weight_kg: form.weight_kg,
+          source_facility: form.source_facility || 'Unknown Facility',
+          department: form.department,
+          container_type: form.container_type,
+          scanned_by: form.scanned_by,
+          notes: form.notes || 'Manually entered via Boon Scanner',
+        })
+        setSuccessMessage(`✓ Logged: ${form.barcode.trim()}`)
+        refreshData()
+      } catch (apiErr: any) {
+        // If offline, save to queue
+        if (!navigator.onLine || apiErr.message?.includes('fetch')) {
+          await enqueueScan({
+            barcode: form.barcode.trim(),
+            waste_type: form.waste_type || 'unknown',
+            category: form.category,
+            weight_kg: form.weight_kg,
+            source_facility: form.source_facility || 'Unknown Facility',
+            department: form.department,
+            container_type: form.container_type,
+            scanned_by: form.scanned_by,
+            notes: (form.notes || 'Manually entered via Boon Scanner') + ' (queued offline)',
+            scanned_at: new Date().toISOString(),
+            synced: false,
+            sync_failures: 0,
+          })
+          setSuccessMessage(`✓ Queued offline: ${form.barcode.trim()}`)
+          refreshData()
+        } else {
+          throw apiErr
+        }
+      }
       setTimeout(() => setSuccessMessage(null), 3000)
-      refreshData()
       setForm(f => ({ ...f, barcode: '', notes: '' }))
     } catch (err: any) {
       setError(err.message || 'Failed to log scan')

@@ -17,6 +17,7 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 from app.database import init_db, drop_db, close_db, SessionLocal
 from app.services import scan_service
+from app.models.cpcb_report import CPCBReport
 from data.sample_data import SAMPLE_WASTE_ITEMS, SAMPLE_ALERTS, SAMPLE_ROUTES, FACILITIES
 
 API_PREFIX = "/api/v1"
@@ -35,10 +36,14 @@ async def _setup_database():
 # ── Clean scan_log + sequence table before each test ─────────────────────
 @pytest.fixture(autouse=True)
 async def _clean_database():
-    """Clear all scan records and reset barcode sequence before each test."""
+    """Clear all scan records, CPCB reports, and reset barcode sequence before each test."""
     async with SessionLocal() as session:
         await scan_service.clear_all_scans(session)
         await scan_service.reset_sequence(session, start=1)
+        # Clear CPCB reports to avoid UNIQUE constraint violations
+        from sqlalchemy import delete
+        await session.execute(delete(CPCBReport))
+        await session.commit()
 
 
 @pytest.fixture
