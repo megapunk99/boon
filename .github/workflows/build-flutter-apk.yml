@@ -58,7 +58,7 @@ jobs:
             echo "local.properties missing — generating..."
             FLUTTER_ROOT="$(dirname $(which flutter))/.."
             echo "FLUTTER_ROOT detected: $FLUTTER_ROOT"
-            cat > android/local.properties << 'LOCALEOF'
+            cat > android/local.properties << LOCALEOF
 flutter.sdk=$FLUTTER_ROOT
 flutter.versionCode=1
 flutter.versionName=1.0.0
