@@ -1,16 +1,16 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/qr_code.dart';
-import '../../services/api_service.dart';
+import '../../services/api_service_base.dart';
 import 'scan_event.dart';
 import 'scan_state.dart';
 
 /// BLoC managing QR code scanning, digital signature verification,
 /// scan logging, and history retrieval.
 class ScanBloc extends Bloc<ScanEvent, ScanState> {
-  final ApiService _api;
+  final ApiServiceBase _api;
 
-  ScanBloc({ApiService? apiService})
+  ScanBloc({ApiServiceBase? apiService})
       : _api = apiService ?? ApiService(),
         super(const ScanInitial()) {
     on<QRCodeScanned>(_onQRCodeScanned);

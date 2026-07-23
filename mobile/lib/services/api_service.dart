@@ -8,9 +8,11 @@ import '../models/scan_record.dart';
 import '../models/user.dart';
 import '../models/qr_code.dart';
 
+import 'api_service_base.dart';
+
 /// Singleton API service for all backend communication.
 /// Handles JWT authentication, token refresh, and error handling.
-class ApiService {
+class ApiService extends ApiServiceBase {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
 

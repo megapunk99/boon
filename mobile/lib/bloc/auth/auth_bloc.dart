@@ -2,16 +2,16 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/auth.dart';
 import '../../models/user.dart';
-import '../../services/api_service.dart';
+import '../../services/api_service_base.dart';
 import 'auth_event.dart';
 import 'auth_state.dart';
 
 /// BLoC for all authentication-related business logic.
 /// Manages login, registration, auto-auth check, and logout flows.
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
-  final ApiService _api;
+  final ApiServiceBase _api;
 
-  AuthBloc({ApiService? apiService})
+  AuthBloc({ApiServiceBase? apiService})
       : _api = apiService ?? ApiService(),
         super(const AuthInitial()) {
     on<LoginSubmitted>(_onLoginSubmitted);
