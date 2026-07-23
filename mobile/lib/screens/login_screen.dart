@@ -5,6 +5,7 @@ import '../bloc/auth/auth_bloc.dart';
 import '../bloc/auth/auth_event.dart';
 import '../bloc/auth/auth_state.dart';
 import '../services/api_service.dart';
+import 'settings_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -266,6 +267,53 @@ class _LoginScreenState extends State<LoginScreen> {
                           style: const TextStyle(
                             color: Color(0xFF34D399),
                             fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Server URL indicator (tappable to change)
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const SettingsScreen()),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF111827),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFF1E293B),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.link,
+                                color: Color(0xFF64748B),
+                                size: 12,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                ApiService().baseUrl,
+                                style: const TextStyle(
+                                  color: Color(0xFF64748B),
+                                  fontSize: 11,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.edit,
+                                color: Color(0xFF475569),
+                                size: 12,
+                              ),
+                            ],
                           ),
                         ),
                       ),

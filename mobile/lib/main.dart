@@ -5,11 +5,15 @@ import 'package:flutter/services.dart';
 import 'bloc/auth/auth_bloc.dart';
 import 'bloc/auth/auth_state.dart';
 import 'bloc/scan/scan_bloc.dart';
+import 'services/api_service.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load the persisted server URL before the app starts
+  await ApiService().init();
 
   // Force portrait orientation for QR scanning
   SystemChrome.setPreferredOrientations([

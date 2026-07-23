@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/auth.dart';
 import '../models/scan_record.dart';
@@ -23,10 +24,19 @@ class ApiService extends ApiServiceBase {
   static const String _accessTokenKey = 'access_token';
   static const String _refreshTokenKey = 'refresh_token';
 
+  // Storage key for the persisted server URL
+  static const String _baseUrlStorageKey = 'boon_server_url';
+
+  // Default backend URL fallbacks
+  static const String defaultEmulatorUrl = 'http://10.0.2.2:8000';
+  static const String defaultIosSimulatorUrl = 'http://localhost:8000';
+
   // Backend URL — configurable
-  String _baseUrl = 'http://10.0.2.2:8000'; // Android emulator default
+  String _baseUrl = defaultEmulatorUrl;
   String get baseUrl => _baseUrl;
-  set baseUrl(String url) => _baseUrl = url;
+  set baseUrl(String url) {
+    _baseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  }
 
   // Auth state
   User? _currentUser;
@@ -37,8 +47,8 @@ class ApiService extends ApiServiceBase {
 
   ApiService._internal() {
     _dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
       headers: {'Content-Type': 'application/json'},
     ));
 
@@ -76,6 +86,66 @@ class ApiService extends ApiServiceBase {
   }
 
   String get _apiPrefix => '/api/v1';
+
+  // ── Configuration Persistence ─────────────────────────────────────────
+
+  @override
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedUrl = prefs.getString(_baseUrlStorageKey);
+    if (savedUrl != null && savedUrl.isNotEmpty) {
+      _baseUrl = savedUrl.endsWith('/') ? savedUrl.substring(0, savedUrl.length - 1) : savedUrl;
+    }
+  }
+
+  @override
+  Future<void> saveBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_baseUrlStorageKey, _baseUrl);
+  }
+
+  @override
+  Future<Map<String, dynamic>> testConnection({String? url}) async {
+    final testUrl = url ?? _baseUrl;
+    try {
+      final response = await Dio().get(
+        '$testUrl/api/v1/health',
+        options: Options(
+          sendTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+        ),
+      );
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>? ?? {};
+        return {
+          'success': true,
+          'message': 'Connected successfully',
+          'server_info': data,
+        };
+      }
+      return {
+        'success': false,
+        'message': 'Server returned status ${response.statusCode}',
+      };
+    } on DioException catch (e) {
+      String msg;
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          msg = 'Connection timed out. Check the URL and ensure the server is running.';
+          break;
+        case DioExceptionType.connectionError:
+          msg = 'Cannot reach server. Check your network and the URL.';
+          break;
+        default:
+          msg = 'Connection failed: ${e.message ?? "Unknown error"}';
+      }
+      return {'success': false, 'message': msg};
+    } catch (e) {
+      return {'success': false, 'message': 'Error: ${e.toString()}'};
+    }
+  }
 
   // ── Token Management ──────────────────────────────────────────────────
 

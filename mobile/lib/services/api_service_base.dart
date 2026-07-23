@@ -9,6 +9,16 @@ abstract class ApiServiceBase {
   String get baseUrl;
   set baseUrl(String url);
 
+  /// Initialize the service — load persisted URL, prepare storage.
+  Future<void> init();
+
+  /// Persist the current base URL so it survives app restarts.
+  Future<void> saveBaseUrl();
+
+  /// Test connectivity by hitting the health endpoint.
+  /// Returns a result map with `success`, `message`, and optional `server_info`.
+  Future<Map<String, dynamic>> testConnection({String? url});
+
   // ── Auth State ─────────────────────────────────────────────────────────
   User? get currentUser;
   bool get isAuthenticated;

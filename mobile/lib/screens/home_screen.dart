@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import 'scan_screen.dart';
 import 'history_screen.dart';
 import 'admin_screen.dart';
+import 'settings_screen.dart';
 
 /// Main home screen with role-based bottom navigation.
 /// Admin sees: Scan, History, Admin
@@ -120,6 +121,15 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             actions: [
+              // Settings
+              IconButton(
+                icon: const Icon(Icons.settings_outlined, color: Color(0xFF64748B), size: 22),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  );
+                },
+              ),
               // Role badge
               Container(
                 margin: const EdgeInsets.only(right: 8),
