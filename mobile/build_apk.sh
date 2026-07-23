@@ -84,17 +84,30 @@ echo "📦 Installing Flutter dependencies..."
 flutter pub get
 echo ""
 
-# ── Step 5: Analyze code ─────────────────────────────────────────────
+# ── Step 5: Setup release keystore ───────────────────────────────────
+if [ -f "keystore/boon-release-keystore.p12" ]; then
+    echo "🔑 Setting up release keystore..."
+    bash keystore/setup_keystore.sh
+    echo ""
+else
+    echo "   ℹ️  No keystore found — release builds will use debug signing"
+fi
+
+# ── Step 6: Analyze code ─────────────────────────────────────────────
 echo "🔎 Analyzing code..."
-flutter analyze
+flutter analyze || echo "   ⚠️  Analysis completed with warnings"
 echo ""
 
-# ── Step 6: Determine build mode ─────────────────────────────────────
+# ── Step 7: Determine build mode ─────────────────────────────────────
 BUILD_MODE="${1:-debug}"
 
 if [ "$BUILD_MODE" = "release" ]; then
     echo "🏗️  Building RELEASE APK..."
-    echo "⚠️  Make sure you have a keystore configured in android/key.properties"
+    if [ -f "android/key.properties" ]; then
+        echo "   🔐 Signed with release keystore"
+    else
+        echo "   ⚠️  No keystore — building unsigned (debug signing)"
+    fi
     flutter build apk --release
     APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
 else

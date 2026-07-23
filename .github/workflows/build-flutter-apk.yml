@@ -49,6 +49,16 @@ jobs:
             echo "android/ directory exists — skipping platform generation."
           fi
 
+      - name: Setup release keystore
+        run: |
+          if [ -f "keystore/boon-release-keystore.p12" ]; then
+            echo "Found release keystore — configuring release signing..."
+            bash keystore/setup_keystore.sh
+            echo "Keystore setup complete."
+          else
+            echo "No keystore found — release builds will use debug signing."
+          fi
+
       - name: Restore Gradle cache
         uses: actions/cache@v4
         with:
@@ -75,13 +85,18 @@ jobs:
       - name: Build debug APK
         run: flutter build apk --debug
 
-      - name: Build release App Bundle (main branch only, best-effort)
+      - name: Build release APK + App Bundle (main branch only)
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         run: |
           if [ -f "android/key.properties" ]; then
+            echo "Building signed release APK..."
+            flutter build apk --release
+            echo "Building signed release App Bundle..."
             flutter build appbundle --release
+            echo "Release artifacts built successfully."
           else
-            echo "::warning::No keystore found — building debug AppBundle instead"
+            echo "::warning::No keystore found — building debug artifacts instead"
+            flutter build apk --debug
             flutter build appbundle --debug
           fi
 
