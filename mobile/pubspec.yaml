@@ -55,6 +55,18 @@ dev_dependencies:
   bloc_test: ^9.1.4
   mocktail: ^1.0.1
   flutter_lints: ^3.0.1
+  flutter_launcher_icons: ^0.14.3
 
 flutter:
   uses-material-design: true
+
+# ── App Launcher Icons ───────────────────────────────────────────────────────
+# Run `flutter pub run flutter_launcher_icons` to regenerate mipmap PNGs
+# from the source icon at assets/icon/ic_launcher_source.png
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/ic_launcher_source.png"
+  adaptive_icon_background: "#030712"
+  adaptive_icon_foreground: "assets/icon/ic_launcher_source.png"
+  min_sdk_android: 21

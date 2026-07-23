@@ -9,6 +9,8 @@
     <uses-feature android:name="android.hardware.camera.autofocus"/>
 
     <application
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="Boon Scanner"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
