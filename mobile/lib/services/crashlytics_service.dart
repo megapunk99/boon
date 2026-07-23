@@ -71,14 +71,24 @@ class CrashlyticsService {
     FirebaseCrashlytics.instance.log(message);
   }
 
-  /// Record a non-fatal or fatal error.
+  /// Record a non-fatal or fatal error with an optional reason tag.
+  ///
+  /// The [reason] field appears in the Firebase Crashlytics console as
+  /// a searchable key, making it easy to group crashes by category
+  /// (e.g. `verify_failed`, `qr_tampered`, `log_scan_failed`).
   static void recordError(
     Object error,
     StackTrace stack, {
     bool fatal = false,
+    String? reason,
   }) {
     if (!_initialized) return;
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: fatal);
+    FirebaseCrashlytics.instance.recordError(
+      error,
+      stack,
+      fatal: fatal,
+      reason: reason,
+    );
   }
 
   /// Associate the current session with a user (e.g. operator ID, email).
