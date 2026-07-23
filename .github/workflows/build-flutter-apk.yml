@@ -41,6 +41,7 @@ jobs:
           if [ ! -d "android" ]; then
             echo "android/ directory missing — generating with flutter create..."
             flutter create --project-name boon_mobile_scanner --org com.boon --platforms android .
+            chmod +x android/gradlew 2>/dev/null || true
             echo "Platform scaffolding generated successfully."
           else
             echo "android/ directory exists — skipping platform generation."
@@ -52,7 +53,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('mobile/pubspec.yaml', 'mobile/**/gradle-wrapper.properties', '.github/workflows/build-flutter-apk.yml') }}
+          key: ${{ runner.os }}-gradle-${{ hashFiles('mobile/pubspec.yaml', 'mobile/**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
 
@@ -72,9 +73,15 @@ jobs:
       - name: Build debug APK
         run: flutter build apk --debug
 
-      - name: Build release App Bundle (main branch only)
+      - name: Build release App Bundle (main branch only, best-effort)
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-        run: flutter build appbundle --release
+        run: |
+          if [ -f "android/key.properties" ]; then
+            flutter build appbundle --release
+          else
+            echo "::warning::No keystore found — building debug AppBundle instead"
+            flutter build appbundle --debug
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
